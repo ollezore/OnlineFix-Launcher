@@ -1,6 +1,6 @@
 [package]
 name = "linfix"
-version = "0.1.0"
+version = "0.2.0"
 description = "Лаунчер игр FreeTP / Online-Fix для Linux: торрент, Proton, Steam (Spacewar 480)"
 edition = "2021"
 license = "GPL-3.0-or-later"

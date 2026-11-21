@@ -7,7 +7,7 @@ const Wizard = (() => {
   let dir = "";
   let busy = false;
 
-  const fmtGB = (b) => (b == null ? "?" : b >= 1024 ** 4 ? `${(b / 1024 ** 4).toFixed(1)} ТБ` : `${Math.round(b / 1024 ** 3)} ГБ`);
+  const fmtGB = (b) => (b == null ? "?" : b >= 1024 ** 4 ? `${(b / 1024 ** 4).toLocaleString(I18N.locale, { maximumFractionDigits: 1 })} ${t("ТБ")}` : `${Math.round(b / 1024 ** 3)} ${t("ГБ")}`);
 
   // Команда установки пакета под дистрибутив пользователя.
   function pkgHint(what) {
@@ -49,6 +49,8 @@ const Wizard = (() => {
         <li><b>Фикс</b> — онлайн-фикс поставится сам.</li>
         <li><b>Игра</b> — запуск через Steam (Spacewar 480), играйте с друзьями.</li>
       </ol>
+      <div class="title-s">Язык</div>
+      <div class="field"><select id="wz-lang"></select></div>
       <div class="title-s">Цвет интерфейса</div>
       <div class="swatches" id="wz-seed">${MD3Theme.PRESETS.map((p) => {
         const s = MD3Theme.scheme(p.hex, document.documentElement.dataset.theme === "dark");
@@ -117,8 +119,8 @@ const Wizard = (() => {
     if (!v) { box.innerHTML = ""; return; }
     try {
       const info = await invoke("dir_info", { path: v });
-      box.innerHTML = `${icon(info.unsuitable ? "warning" : "ok")}<span>Свободно ${fmtGB(info.freeBytes)}${info.fs ? ` · ${esc(info.fs)}` : ""}${
-        info.unsuitable ? ". Это раздел Windows: игры можно хранить здесь, но префиксы Proton лаунчер положит в домашнюю папку." : ""}</span>`;
+      box.innerHTML = `${icon(info.unsuitable ? "warning" : "ok")}<span>${esc(t("Свободно {0}", [fmtGB(info.freeBytes) + (info.fs ? ` · ${info.fs}` : "")]))}${
+        info.unsuitable ? `. ${esc(t("Это раздел Windows: игры можно хранить здесь, но префиксы Proton лаунчер положит в домашнюю папку."))}` : ""}</span>`;
       box.classList.toggle("warn", !!info.unsuitable);
     } catch { box.innerHTML = ""; }
   }
@@ -135,6 +137,7 @@ const Wizard = (() => {
       </div>`, (d) => {
       d.classList.add("wizard");
       $$("[data-seed]", d).forEach((b) => (b.onclick = () => { MD3Theme.setSeed(b.dataset.seed); render(); }));
+      const wl = $("#wz-lang", d); if (wl) renderLangSelect(wl);
       $$("[data-copy]", d).forEach((b) => (b.onclick = () => navigator.clipboard?.writeText(b.dataset.copy).then(() => snack("Команда скопирована"))));
       const skip = $("#wz-skip", d); if (skip) skip.onclick = finish;
       const back = $("#wz-back", d); if (back) back.onclick = () => { step--; render(); };
@@ -160,7 +163,7 @@ const Wizard = (() => {
       const re = $("#wz-recheck", d); if (re) re.onclick = () => { sys = null; render(); loadSys(); };
       const inp = $("#wz-dir", d);
       if (inp) {
-        let t; inp.oninput = () => { clearTimeout(t); t = setTimeout(() => refreshDirInfo(d), 300); };
+        let timer; inp.oninput = () => { clearTimeout(timer); timer = setTimeout(() => refreshDirInfo(d), 300); };
         refreshDirInfo(d);
         $("#wz-browse", d).onclick = async () => {
           if (!T) return;

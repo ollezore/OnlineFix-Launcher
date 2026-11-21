@@ -98,20 +98,20 @@ function applyCover(title) {
   });
 }
 function fmtBytes(b) {
-  if (!b) return "0 Б";
+  if (!b) return `0 ${t("Б")}`;
   const u = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
   const i = Math.min(u.length - 1, Math.floor(Math.log(b) / Math.log(1024)));
-  return `${(b / 1024 ** i).toFixed(i > 1 ? 1 : 0)} ${u[i]}`;
+  return `${(b / 1024 ** i).toLocaleString(I18N.locale, { maximumFractionDigits: i > 1 ? 1 : 0 })} ${t(u[i])}`;
 }
 function fmtTime(s) {
   if (s == null) return "—";
-  if (s < 60) return `${s} с`;
-  if (s < 3600) return `${Math.floor(s / 60)} мин`;
-  return `${Math.floor(s / 3600)} ч ${Math.floor((s % 3600) / 60)} мин`;
+  if (s < 60) return t("{0} с", [s]);
+  if (s < 3600) return t("{0} мин", [Math.floor(s / 60)]);
+  return t("{0} ч {1} мин", [Math.floor(s / 3600), Math.floor((s % 3600) / 60)]);
 }
 function fmtDate(iso) {
   const d = new Date(iso);
-  return isNaN(d) ? "" : d.toLocaleDateString("ru-RU", { day: "numeric", month: "short", year: "numeric" });
+  return isNaN(d) ? "" : d.toLocaleDateString(I18N.locale, { day: "numeric", month: "short", year: "numeric" });
 }
 // «5.72 GB» → байты (для сортировки по размеру).
 function sizeBytes(s) {
@@ -347,7 +347,7 @@ function renderTabs() {
     t.setAttribute("aria-selected", on);
   });
   $$(".freetp-only").forEach((c) => c.classList.toggle("hidden", cat !== "freetp"));
-  $("#search").placeholder = CATALOGS[cat].search;
+  $("#search").placeholder = t(CATALOGS[cat].search);
   const m = state.catMeta[cat];
   $("#catalog-meta").innerHTML = m
     ? `${icon("info")}<span>База ${esc(CATALOGS[cat].name)}: ${esc(m.origin)} · последняя раздача ${fmtDate(m.newest)}</span>`
@@ -383,14 +383,14 @@ function applyFilter() {
     new: byDate,
     "size-desc": (a, b) => sizeBytes(b.latest.fileSize) - sizeBytes(a.latest.fileSize),
     "size-asc": (a, b) => sizeBytes(a.latest.fileSize) - sizeBytes(b.latest.fileSize),
-    az: (a, b) => a.title.localeCompare(b.title, "ru"),
+    az: (a, b) => a.title.localeCompare(b.title, I18N.locale),
   };
   // Топ-100 всегда по месту в рейтинге.
   list = list.sort(state.filter === "top" ? sorters.popular : sorters[state.sort] || sorters.popular);
   state.filtered = list;
   state.shown = 0;
   $("#catalog-grid").innerHTML = "";
-  $("#catalog-count").textContent = `${list.length} игр`;
+  $("#catalog-count").textContent = t("{0} игр", [list.length]);
   if (!list.length && state.catalog.length) {
     $("#catalog-grid").innerHTML = `<div class="empty" style="grid-column:1/-1">${icon("search")}<span class="body-l">Ничего не найдено</span></div>`;
   }
@@ -609,12 +609,12 @@ function renderAppUpdate() {
   const d = $("#app-update-desc"), b = $("#app-update-check");
   if (!d || !b) return;
   if (appUpdate) {
-    d.textContent = `Доступна версия ${appUpdate.version}${appUpdate.date ? ` от ${appUpdate.date}` : ""}`;
-    b.lastChild.textContent = "Обновить";
+    d.textContent = t("Доступна версия {0}", [appUpdate.version + (appUpdate.date ? ` · ${fmtDate(appUpdate.date)}` : "")]);
+    b.lastChild.textContent = t("Обновить");
     b.onclick = showAppUpdate;
   } else {
-    d.textContent = "Обновления приходят с GitHub Releases";
-    b.lastChild.textContent = "Проверить обновления";
+    d.textContent = t("Обновления приходят с GitHub Releases");
+    b.lastChild.textContent = t("Проверить обновления");
     b.onclick = () => checkAppUpdate(true);
   }
 }
@@ -624,7 +624,7 @@ async function showAppUpdate() {
   const ok = await confirmDialog({
     icon: "download",
     title: `LinFix ${appUpdate.version}`,
-    text: `Сейчас у вас ${esc(appUpdate.current)}.${appUpdate.notes
+    text: `${esc(t("Сейчас у вас {0}.", [appUpdate.current]))}${appUpdate.notes
       ? `<div class="release-notes">${esc(appUpdate.notes)}</div>` : ""}
       После установки лаунчер перезапустится. Загрузки игр продолжатся сами.`,
     ok: "Обновить и перезапустить",
@@ -941,7 +941,7 @@ function renderDownloads() {
       : d.state === "metadata" ? `Ищу пиров и получаю данные раздачи… ${fmtTime(d.waitingSecs)}${slow
           ? ` · <span style="color:var(--md-tertiary)">похоже, у раздачи нет сидов. Подождите или выберите другую версию в каталоге</span>` : ""}`
       : init ? "Проверяю файлы…"
-      : `${fmtBytes(d.progressBytes)} из ${fmtBytes(d.totalBytes)} · ${paused ? "пауза" : `${fmtBytes(d.smooth)}/с · осталось ${fmtTime(d.etaSmooth)}`}`;
+      : `${t("{0} из {1}", [fmtBytes(d.progressBytes), fmtBytes(d.totalBytes)])} · ${paused ? t("пауза") : t("{0}/с · осталось {1}", [fmtBytes(d.smooth), fmtTime(d.etaSmooth)])}`;
     return `<div class="list-item" data-id="${esc(g.id)}">
       <div class="lead">${icon("download")}</div>
       <div class="grow">
@@ -978,10 +978,11 @@ async function renderSettings() {
       : `<option value="">Proton не найден</option>`;
     mdSelect($("#set-proton"));
     const ges = protons.filter((p) => /ge-proton/i.test(p.name)).map((p) => p.name);
-    $("#ge-desc").textContent = (ges.length ? `Установлено: ${ges.slice(0, 3).join(", ")}${ges.length > 3 ? "…" : ""}. ` : "Не установлен. ")
-      + "Лучше всего подходит для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр. "
-      + "При «Автоматически» берётся самая новая версия GE.";
+    $("#ge-desc").textContent = (ges.length ? `${t("Установлено: {0}", [ges.slice(0, 3).join(", ") + (ges.length > 3 ? "…" : "")])}. ` : `${t("Не установлен.")} `)
+      + `${t("Лучше всего подходит для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр.")} `
+      + t("При «Автоматически» берётся самая новая версия GE.");
     renderThemeSettings();
+    renderLangSelect($("#set-lang"));
 
     const row = (ok, title, sub, action = "") => `<div class="row">
       <span style="color:${ok ? "var(--md-primary)" : "var(--md-error)"}">${icon(ok ? "ok" : "error")}</span>
@@ -1001,7 +1002,7 @@ async function renderSettings() {
     const ge = $("#sys-ge-proton");
     if (ge) ge.onclick = async () => {
       ge.disabled = true;
-      ge.textContent = "Скачивание…";
+      ge.textContent = t("Скачивание…");
       try {
         const r = await invoke("install_ge_proton");
         snack(r.already ? `${r.tag} — уже последняя версия` : `${r.tag} установлен`);
@@ -1021,6 +1022,17 @@ async function saveSettings(patch) {
     state.settings = s;
     if (sourceChanged) loadCatalog(false);
   } catch (e) { fail(e); }
+}
+
+// Список языков: названия на своём языке, выбранный — сверху как есть.
+function renderLangSelect(sel) {
+  if (!sel) return;
+  sel.innerHTML = Object.entries(I18N.LANGS)
+    .filter(([code]) => I18N.hasLocale(code))
+    .map(([code, name]) => `<option value="${code}" ${code === I18N.lang ? "selected" : ""}>${esc(name)}</option>`)
+    .join("");
+  sel.onchange = () => { if (sel.value !== I18N.lang) I18N.setLang(sel.value); };
+  mdSelect(sel);
 }
 
 function renderThemeSettings() {
@@ -1045,8 +1057,8 @@ function renderThemeSettings() {
 function bind() {
   $$(".rail-item").forEach((b) => (b.onclick = () => go(b.dataset.view)));
 
-  let t;
-  $("#search").oninput = (e) => { clearTimeout(t); t = setTimeout(() => { state.query = e.target.value; applyFilter(); }, 150); };
+  let timer;
+  $("#search").oninput = (e) => { clearTimeout(timer); timer = setTimeout(() => { state.query = e.target.value; applyFilter(); }, 150); };
   $("#refresh-catalog").onclick = (e) => { e.preventDefault(); loadCatalog(true).then(() => { loadPopular(true); checkUpdates(); }); };
   $$("#catalog-tabs .tab").forEach((t) => (t.onclick = () => switchCatalog(t.dataset.catalog)));
   const SORTS = { popular: "Популярные", new: "Новые", "size-desc": "Сначала большие", "size-asc": "Сначала маленькие", az: "По алфавиту" };
@@ -1114,13 +1126,13 @@ function bind() {
   $("#ge-download").onclick = async (e) => {
     const b = e.currentTarget;
     b.disabled = true;
-    b.lastChild.textContent = "Скачиваю…";
+    b.lastChild.textContent = t("Скачиваю…");
     try {
       const r = await invoke("install_ge_proton");
       snack(r.already ? `${r.tag} — у вас уже последняя версия` : `${r.tag} установлен и будет использоваться автоматически`);
     } catch (err) { fail(err); }
     b.disabled = false;
-    b.lastChild.textContent = "Скачать последнюю";
+    b.lastChild.textContent = t("Скачать последнюю");
     renderSettings();
   };
   $("#set-log").onchange = (e) => saveSettings({ protonLog: e.target.checked });

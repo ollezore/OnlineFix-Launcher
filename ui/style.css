@@ -167,6 +167,13 @@ svg.i.sm { width: 18px; height: 18px; }
   font-size: 11px; line-height: 16px; font-weight: 500; text-align: center;
 }
 .rail .spacer { flex: 1; }
+/* Длинные подписи (Завантаження, Einstellungen…) — мельче, при нехватке места с многоточием */
+.rail-item .label-m {
+  max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  letter-spacing: 0; text-align: center;
+}
+:root:is([lang="uk"], [lang="de"], [lang="pl"], [lang="es"]) .rail-item .label-m { font-size: 11px; }
+.lang-field { width: 220px; flex: none; }
 
 .main {
   background: var(--md-surface-container-low);
