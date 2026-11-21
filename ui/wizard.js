@@ -1,4 +1,4 @@
-// LinFix — мастер первого запуска (Material Design 3). SPDX-License-Identifier: GPL-3.0-or-later
+// OnlineFix-Launcher — мастер первого запуска (Material Design 3). SPDX-License-Identifier: GPL-3.0-or-later
 // Проверяет Steam / Proton / архиваторы, помогает выбрать папку для игр.
 
 const Wizard = (() => {
@@ -41,7 +41,7 @@ const Wizard = (() => {
     const { seed } = MD3Theme.get();
     return `
       <div class="wz-hero">${icon("games")}</div>
-      <h2 class="headline-s">Добро пожаловать в LinFix</h2>
+      <h2 class="headline-s">Добро пожаловать в OnlineFix-Launcher</h2>
       <div class="body-m muted">Лаунчер игр с онлайн-фиксами FreeTP и Online-Fix. Без регистрации — базы открытые.</div>
       <ol class="wz-steps body-m">
         <li><b>Каталог</b> — найдите игру и нажмите «Скачать».</li>

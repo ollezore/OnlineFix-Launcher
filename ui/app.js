@@ -1,4 +1,4 @@
-// LinFix UI — SPDX-License-Identifier: GPL-3.0-or-later
+// OnlineFix-Launcher UI — SPDX-License-Identifier: GPL-3.0-or-later
 "use strict";
 
 const T = window.__TAURI__;
@@ -454,7 +454,7 @@ function openCatalogGame(g) {
       <div class="body-s muted">Внутри будет создана папка игры: раздача, префикс Proton и сама игра.</div>
     </div>
     <div class="dlg-actions">
-      ${g.latest.articleUrl ? `<button class="btn text has-icon" id="dlg-article">${icon("open")}Страница игры</button>` : ""}
+      <button class="btn text has-icon" id="dlg-steam">${icon("steam")}Страница в Steam</button>
       <span style="flex:1"></span>
       <button class="btn text" data-close>Отмена</button>
       <button class="btn filled has-icon" id="dlg-download">${icon("download")}Скачать</button>
@@ -462,8 +462,17 @@ function openCatalogGame(g) {
   openDialog(html, (dlg) => {
     observeCovers(dlg);
     $$("input[name=ver]", dlg).forEach((r) => (r.onchange = () => (sel = +r.value)));
-    const art = $("#dlg-article", dlg);
-    if (art) art.onclick = () => invoke("open_url", { url: g.versions[sel].articleUrl || g.latest.articleUrl }).catch(fail);
+    // Страница в Steam: id берём из уже найденной обложки, иначе ищем в магазине.
+    $("#dlg-steam", dlg).onclick = async (e) => {
+      const b = e.currentTarget;
+      const m = /\/steam\/apps\/(\d+)\//.exec(coverCache.get(g.title) || "");
+      try {
+        b.disabled = true;
+        const url = m ? `https://store.steampowered.com/app/${m[1]}/` : await invoke("steam_page", { title: g.title });
+        await invoke("open_url", { url });
+      } catch (err) { fail(err); }
+      b.disabled = false;
+    };
     $("#dlg-browse", dlg).onclick = async () => {
       if (!T) return;
       const d = await T.dialog.open({ directory: true, defaultPath: $("#dlg-dir", dlg).value || state.settings?.gamesDir });
@@ -597,8 +606,8 @@ async function checkAppUpdate(manual = false) {
   try {
     appUpdate = await invoke("check_app_update");
     renderAppUpdate();
-    if (appUpdate) snack(`Доступна новая версия LinFix ${appUpdate.version}`, "Подробнее", showAppUpdate);
-    else if (manual) snack("У вас последняя версия LinFix");
+    if (appUpdate) snack(`Доступна новая версия OnlineFix-Launcher ${appUpdate.version}`, "Подробнее", showAppUpdate);
+    else if (manual) snack("У вас последняя версия OnlineFix-Launcher");
   } catch (e) {
     if (manual) snack(`Не удалось проверить обновления: ${e}`, "Релизы", () => invoke("open_url", { url: `${REPO_URL}/releases` }));
   }
@@ -623,14 +632,14 @@ async function showAppUpdate() {
   if (!appUpdate) return;
   const ok = await confirmDialog({
     icon: "download",
-    title: `LinFix ${appUpdate.version}`,
+    title: `OnlineFix-Launcher ${appUpdate.version}`,
     text: `${esc(t("Сейчас у вас {0}.", [appUpdate.current]))}${appUpdate.notes
       ? `<div class="release-notes">${esc(appUpdate.notes)}</div>` : ""}
       После установки лаунчер перезапустится. Загрузки игр продолжатся сами.`,
     ok: "Обновить и перезапустить",
   });
   if (!ok) return;
-  snack("Скачиваю обновление LinFix…");
+  snack("Скачиваю обновление OnlineFix-Launcher…");
   try { await invoke("install_app_update"); } catch (e) { snack(String(e), "Релизы", () => invoke("open_url", { url: `${REPO_URL}/releases` })); }
 }
 
@@ -1142,7 +1151,7 @@ function bind() {
   $$("[data-url]").forEach((a) => (a.onclick = (e) => { e.preventDefault(); invoke("open_url", { url: a.dataset.url }).catch(fail); }));
 
   listen("library-changed", () => refreshLibrary());
-  listen("app-update-progress", (e) => snack(`Обновление LinFix: ${e.payload}%`));
+  listen("app-update-progress", (e) => snack(`Обновление OnlineFix-Launcher: ${e.payload}%`));
   $("#open-repo").onclick = () => invoke("open_url", { url: REPO_URL }).catch(fail);
   renderAppUpdate();
   listen("toast", (e) => snack(e.payload));
@@ -1181,9 +1190,9 @@ async function mockInvoke(cmd, args) {
     { title: "Abiotic Factor", release: "Abiotic Factor v1.4.0 by Pioneer", magnet: "", infoHash: "c3", fileSize: "3.6 GB", uploadDate: "2026-09-12T10:00:00", installKind: 1, addons: [], articleUrl: null },
     { title: "Phasmophobia", release: "Phasmophobia v0.13", magnet: "", infoHash: "d4", fileSize: "18.2 GB", uploadDate: "2026-08-02T10:00:00", installKind: 0, addons: [], articleUrl: null },
   ];
-  const lib = [{ id: "lethal", title: "Lethal Company", release: "v72 by Pioneer", infoHash: "a1", status: "installed", dir: "~/Games/LinFix/lethal", exe: "/x/Lethal Company.exe", spacewar: true, playtimeSecs: 7300, addedAt: 1, launchArgs: "", env: "", dllOverrides: "", addons: [], installKind: 2 },
-    { id: "sched", title: "Schedule I", release: "v0.4.1 by Pioneer", infoHash: "c3", status: "installed", dir: "~/Games/LinFix/sched", exe: "/x/Schedule I.exe", spacewar: true, addedAt: 3, launchArgs: "", env: "", dllOverrides: "", installKind: 1, addons: [{ title: "Schedule I Multiplayer Fix" }], addonsApplied: true, addonApplied: "Schedule-I-Multiplayer-Fix-Online-v1.2.exe" },
-    { id: "7dtd", title: "7 Days To Die", release: "v3.3.0 (b18) by Pioneer", infoHash: "b2", status: "downloading", dir: "~/Games/LinFix/7dtd", spacewar: true, addedAt: 2, addons: [] }];
+  const lib = [{ id: "lethal", title: "Lethal Company", release: "v72 by Pioneer", infoHash: "a1", status: "installed", dir: "~/Games/OnlineFix-Launcher/lethal", exe: "/x/Lethal Company.exe", spacewar: true, playtimeSecs: 7300, addedAt: 1, launchArgs: "", env: "", dllOverrides: "", addons: [], installKind: 2 },
+    { id: "sched", title: "Schedule I", release: "v0.4.1 by Pioneer", infoHash: "c3", status: "installed", dir: "~/Games/OnlineFix-Launcher/sched", exe: "/x/Schedule I.exe", spacewar: true, addedAt: 3, launchArgs: "", env: "", dllOverrides: "", installKind: 1, addons: [{ title: "Schedule I Multiplayer Fix" }], addonsApplied: true, addonApplied: "Schedule-I-Multiplayer-Fix-Online-v1.2.exe" },
+    { id: "7dtd", title: "7 Days To Die", release: "v3.3.0 (b18) by Pioneer", infoHash: "b2", status: "downloading", dir: "~/Games/OnlineFix-Launcher/7dtd", spacewar: true, addedAt: 2, addons: [] }];
   switch (cmd) {
     case "get_catalog":
       if (args?.catalog === "onlinefix") return { origin: "hydralinks.cloud (оригинал)", newest: "2026-11-17T01:34:44Z", entries: [
@@ -1194,7 +1203,7 @@ async function mockInvoke(cmd, args) {
     case "library": return lib;
     case "running_games": return [];
     case "downloads": return [{ id: "7dtd", state: "live", progressBytes: 6.2e9, totalBytes: 17.6e9, speedBps: 12.4e6, etaSecs: 920 }];
-    case "get_settings": return { gamesDir: "~/Games/LinFix", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: true };
+    case "get_settings": return { gamesDir: "~/Games/OnlineFix-Launcher", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: true };
     case "list_protons": return [{ name: "GE-Proton10-25", path: "" }, { name: "GE-Proton10-9", path: "" }, { name: "Proton - Experimental", path: "" }];
     case "system_status": return { platform: "linux", steamRoot: "~/.local/share/Steam", steamRunning: false, umu: false, protons: 1, geProton: false, archiver: "/usr/bin/7z", unrar: false, steamFlatpak: false, distro: "ubuntu", distroLike: "debian" };
     case "dir_info": return { fs: /mnt/.test(args.path) ? "fuseblk" : "ext4", unsuitable: /mnt/.test(args.path), freeBytes: 412e9 };
@@ -1203,7 +1212,7 @@ async function mockInvoke(cmd, args) {
     case "check_updates": return [
       { id: "lethal", kind: "game", entry: { title: "Lethal Company", release: "Lethal Company v73 by Pioneer", magnet: "", infoHash: "a9", fileSize: "1.2 GB", uploadDate: "2026-11-20T10:00:00", installKind: 2, addons: [], source: "freetp" } },
       { id: "sched", kind: "fix", fixTitle: "Schedule-I-Multiplayer-Fix-Online-v1.3.exe" }];
-    case "find_executables": return ["/home/user/Games/LinFix/7dtd/download/7DaysToDie.exe"];
+    case "find_executables": return ["/home/user/Games/OnlineFix-Launcher/7dtd/download/7DaysToDie.exe"];
     default: return null;
   }
 }

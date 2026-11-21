@@ -1,4 +1,4 @@
-# LinFix — таблица переводов интерфейса.  SPDX-License-Identifier: GPL-3.0-or-later
+# OnlineFix-Launcher — таблица переводов интерфейса.  SPDX-License-Identifier: GPL-3.0-or-later
 #
 # Источник — русский текст (как в коде). Колонки: en, uk, de, pl, es.
 # {0}, {1} — подстановки, их нужно сохранить. После правки:
@@ -219,9 +219,9 @@ T = [
 ("Свободное ПО под лицензией GNU GPL v3. Базы игр:", "Free software under the GNU GPL v3. Game catalogs:", "Вільне ПЗ за ліцензією GNU GPL v3. Бази ігор:", "Freie Software unter der GNU GPL v3. Spielkataloge:", "Wolne oprogramowanie na licencji GNU GPL v3. Katalogi gier:", "Software libre bajo la GNU GPL v3. Catálogos de juegos:"),
 (". Шрифт Roboto — SIL OFL 1.1.", ". Roboto font — SIL OFL 1.1.", ". Шрифт Roboto — SIL OFL 1.1.", ". Schrift Roboto — SIL OFL 1.1.", ". Czcionka Roboto — SIL OFL 1.1.", ". Fuente Roboto — SIL OFL 1.1."),
 # ── Обновление лаунчера ──
-("Доступна новая версия LinFix {0}", "LinFix {0} is available", "Доступна нова версія LinFix {0}", "LinFix {0} ist verfügbar", "Dostępna jest nowa wersja LinFix {0}", "Hay una nueva versión de LinFix: {0}"),
+("Доступна новая версия OnlineFix-Launcher {0}", "OnlineFix-Launcher {0} is available", "Доступна нова версія OnlineFix-Launcher {0}", "OnlineFix-Launcher {0} ist verfügbar", "Dostępna jest nowa wersja OnlineFix-Launcher {0}", "Hay una nueva versión de OnlineFix-Launcher: {0}"),
 ("Подробнее", "Details", "Докладніше", "Details", "Szczegóły", "Detalles"),
-("У вас последняя версия LinFix", "You have the latest LinFix", "У вас остання версія LinFix", "Du hast die neueste LinFix-Version", "Masz najnowszą wersję LinFix", "Tienes la última versión de LinFix"),
+("У вас последняя версия OnlineFix-Launcher", "You have the latest OnlineFix-Launcher", "У вас остання версія OnlineFix-Launcher", "Du hast die neueste OnlineFix-Launcher-Version", "Masz najnowszą wersję OnlineFix-Launcher", "Tienes la última versión de OnlineFix-Launcher"),
 ("Не удалось проверить обновления: {0}", "Couldn't check for updates: {0}", "Не вдалося перевірити оновлення: {0}", "Updates konnten nicht geprüft werden: {0}", "Nie udało się sprawdzić aktualizacji: {0}", "No se pudo buscar actualizaciones: {0}"),
 ("Релизы", "Releases", "Релізи", "Releases", "Wydania", "Versiones"),
 ("Доступна версия {0}", "Version {0} is available", "Доступна версія {0}", "Version {0} verfügbar", "Dostępna wersja {0}", "Versión {0} disponible"),
@@ -229,8 +229,8 @@ T = [
 ("Сейчас у вас {0}.", "You have {0}.", "Зараз у вас {0}.", "Du hast {0}.", "Masz teraz {0}.", "Ahora tienes {0}."),
 ("После установки лаунчер перезапустится. Загрузки игр продолжатся сами.", "The launcher will restart after installing. Game downloads will resume on their own.", "Після встановлення лаунчер перезапуститься. Завантаження ігор продовжаться самі.", "Nach der Installation startet der Launcher neu. Spiel-Downloads laufen von selbst weiter.", "Po instalacji launcher uruchomi się ponownie. Pobieranie gier wznowi się samo.", "Tras instalar, el launcher se reiniciará. Las descargas de juegos continuarán solas."),
 ("Обновить и перезапустить", "Update and restart", "Оновити й перезапустити", "Aktualisieren und neu starten", "Aktualizuj i uruchom ponownie", "Actualizar y reiniciar"),
-("Скачиваю обновление LinFix…", "Downloading LinFix update…", "Завантажую оновлення LinFix…", "Lade LinFix-Update…", "Pobieram aktualizację LinFix…", "Descargando la actualización de LinFix…"),
-("Обновление LinFix: {0}%", "LinFix update: {0}%", "Оновлення LinFix: {0}%", "LinFix-Update: {0} %", "Aktualizacja LinFix: {0}%", "Actualización de LinFix: {0} %"),
+("Скачиваю обновление OnlineFix-Launcher…", "Downloading OnlineFix-Launcher update…", "Завантажую оновлення OnlineFix-Launcher…", "Lade OnlineFix-Launcher-Update…", "Pobieram aktualizację OnlineFix-Launcher…", "Descargando la actualización de OnlineFix-Launcher…"),
+("Обновление OnlineFix-Launcher: {0}%", "OnlineFix-Launcher update: {0}%", "Оновлення OnlineFix-Launcher: {0}%", "OnlineFix-Launcher-Update: {0} %", "Aktualizacja OnlineFix-Launcher: {0}%", "Actualización de OnlineFix-Launcher: {0} %"),
 # ── Обновление игр ──
 ("Обновить «{0}»?", "Update “{0}”?", "Оновити «{0}»?", "„{0}“ aktualisieren?", "Zaktualizować „{0}”?", "¿Actualizar «{0}»?"),
 ("Новая раздача скачается в ту же папку: совпадающие файлы не качаются заново, сохранения и настройки в префиксе останутся.", "The new release downloads into the same folder: matching files aren't downloaded again, saves and settings in the prefix stay.", "Нова роздача завантажиться в ту саму теку: однакові файли не завантажуються знову, збереження й налаштування в префіксі залишаться.", "Der neue Release wird in denselben Ordner geladen: gleiche Dateien werden nicht erneut geladen, Spielstände und Einstellungen im Präfix bleiben.", "Nowe wydanie pobierze się do tego samego folderu: identyczne pliki nie są pobierane ponownie, zapisy i ustawienia w prefiksie zostaną.", "La nueva versión se descarga en la misma carpeta: los archivos iguales no se vuelven a bajar y las partidas y ajustes del prefijo se conservan."),
@@ -238,7 +238,7 @@ T = [
 ("После загрузки нажмите «Установить» — установщик обновит игру, затем фикс поставится сам.", "After downloading, click “Install” — the installer will update the game, then the fix installs itself.", "Після завантаження натисніть «Встановити» — інсталятор оновить гру, потім фікс встановиться сам.", "Klicke nach dem Download auf „Installieren“ — der Installer aktualisiert das Spiel, danach installiert sich der Fix selbst.", "Po pobraniu kliknij „Zainstaluj” — instalator zaktualizuje grę, a potem fix zainstaluje się sam.", "Tras la descarga, pulsa «Instalar»: el instalador actualizará el juego y luego el fix se instalará solo."),
 ("Обновляю «{0}»", "Updating “{0}”", "Оновлюю «{0}»", "Aktualisiere „{0}“", "Aktualizuję „{0}”", "Actualizando «{0}»"),
 # ── Мастер ──
-("Добро пожаловать в LinFix", "Welcome to LinFix", "Ласкаво просимо до LinFix", "Willkommen bei LinFix", "Witaj w LinFix", "Bienvenido a LinFix"),
+("Добро пожаловать в OnlineFix-Launcher", "Welcome to OnlineFix-Launcher", "Ласкаво просимо до OnlineFix-Launcher", "Willkommen bei OnlineFix-Launcher", "Witaj w OnlineFix-Launcher", "Bienvenido a OnlineFix-Launcher"),
 ("Лаунчер игр с онлайн-фиксами FreeTP и Online-Fix. Без регистрации — базы открытые.", "A launcher for games with FreeTP and Online-Fix online fixes. No sign-up — the catalogs are open.", "Лаунчер ігор з онлайн-фіксами FreeTP та Online-Fix. Без реєстрації — бази відкриті.", "Ein Launcher für Spiele mit Online-Fixes von FreeTP und Online-Fix. Keine Anmeldung — die Kataloge sind offen.", "Launcher gier z online-fixami FreeTP i Online-Fix. Bez rejestracji — katalogi są otwarte.", "Un launcher de juegos con fixes online de FreeTP y Online-Fix. Sin registro: los catálogos son abiertos."),
 ("— найдите игру и нажмите «Скачать».", "— find a game and click “Download”.", "— знайдіть гру й натисніть «Завантажити».", "— such ein Spiel und klicke auf „Herunterladen“.", "— znajdź grę i kliknij „Pobierz”.", "— busca un juego y pulsa «Descargar»."),
 ("Установка", "Install", "Встановлення", "Installation", "Instalacja", "Instalación"),
@@ -349,6 +349,7 @@ T = [
 # ── Дополнительно ──
 ("В библиотеке", "In library", "У бібліотеці", "In der Bibliothek", "W bibliotece", "En la biblioteca"),
 ("Страница игры", "Game page", "Сторінка гри", "Spielseite", "Strona gry", "Página del juego"),
+("Страница в Steam", "Steam page", "Сторінка в Steam", "Steam-Seite", "Strona w Steam", "Página en Steam"),
 ("Доступно обновление", "Update available", "Доступне оновлення", "Update verfügbar", "Dostępna aktualizacja", "Actualización disponible"),
 ("Наиграно: {0}", "Played: {0}", "Зіграно: {0}", "Gespielt: {0}", "Czas gry: {0}", "Jugado: {0}"),
 ("{0} версии", "{0} versions", "{0} версії", "{0} Versionen", "Wersje: {0}", "{0} versiones"),

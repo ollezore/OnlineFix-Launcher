@@ -175,7 +175,7 @@ impl Default for Settings {
         Settings {
             games_dir: dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("/tmp"))
-                .join("Games/LinFix"),
+                .join("Games/OnlineFix-Launcher"),
             source: "arachnel".into(),
             proton: None,
             use_umu: false,

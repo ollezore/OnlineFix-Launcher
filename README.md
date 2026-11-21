@@ -1,120 +1,147 @@
-# LinFix
+# OnlineFix-Launcher
 
-Лаунчер для Linux (и Windows): берёт игры из открытых каталогов **FreeTP** и **Online-Fix**, качает их встроенным торрент-клиентом, ставит каждую в отдельный префикс Proton и запускает с сетевой игрой через Steam (Spacewar, AppID 480). Регистрация не нужна.
+Лаунчер, который скачивает игры с онлайн-фиксами (FreeTP и Online-Fix), сам их устанавливает и запускает так, чтобы можно было играть с друзьями по сети через Steam.
 
-![Каталог](docs/screenshots/catalog.png)
+Работает на **Linux** (через Proton) и на **Windows**. Регистрация не нужна.
 
-## Скачать
+![Каталог игр](docs/screenshots/catalog.png)
 
-Готовые сборки — на странице [**Releases**](https://github.com/ollezore/LinFix/releases/latest):
+## Что умеет
 
-| Система | Файл | Как запустить |
-|---|---|---|
-| Любой Linux | `LinFix_*_amd64.AppImage` | `chmod +x LinFix_*.AppImage && ./LinFix_*.AppImage` |
-| Ubuntu / Debian / Mint | `LinFix_*_amd64.deb` | `sudo apt install ./LinFix_*.deb` |
-| Fedora / openSUSE | `LinFix-*.x86_64.rpm` | `sudo dnf install ./LinFix-*.rpm` |
-| Windows 10/11 | `LinFix_*_x64-setup.exe` | запустить установщик |
+- **Тысячи игр** в каталоге с поиском, «Популярными» и «Топ-100». Две вкладки: FreeTP и Online-Fix, можно выбрать, откуда качать.
+- **Всё в одну кнопку:** скачает игру, распакует, запустит установщик, поставит онлайн-фикс.
+- **Обновления:** сам скажет, когда вышла новая версия игры или фикса, и обновит без потери сохранений.
+- **Онлайн через Steam:** игра запускается как Spacewar, работает оверлей Steam (Shift+Tab).
+- **6 языков:** українська, русский, English, Deutsch, Polski, Español.
+- Светлая и тёмная тема, цвет интерфейса на выбор.
 
-Лаунчер сам предложит обновиться, когда выйдет новая версия.
+## Установка
 
-**Для онлайна нужны** установленный и запущенный **Steam**, а на Linux — **Proton** (лучше GE-Proton: лаунчер скачает его кнопкой в «Настройки → Proton») и **7z**. При первом запуске мастер всё проверит и подскажет команды для вашего дистрибутива.
+Скачайте файл для своей системы со страницы [**последнего релиза**](https://github.com/ollezore/LinFix/releases/latest).
 
-## Возможности
+### Linux
 
-- **Два каталога** — вкладки FreeTP (~2900 игр, с отдельными фиксами) и Online-Fix (~2800 игр, фикс внутри раздачи). Поиск, «Популярные» и «Топ-100» по посещаемости FreeTP, сортировка по размеру и дате, обложки из Steam.
-- **Установка в один клик**: торрент → распаковка архивов → установщик через Proton в отдельном префиксе → выбор exe → онлайн-фикс ставится сам (в т.ч. фиксы-установщики Inno Setup). Можно выбрать папку для каждой игры.
-- **Варианты фиксов**: если для игры их несколько (разные версии, Steam / LAN), лаунчер даст выбрать; на карточке видно, какой стоит.
-- **Обновления игр и фиксов**: лаунчер сравнивает библиотеку с базами и предлагает обновить. Новая раздача качается поверх старой — докачиваются только изменённые файлы, сохранения в префиксе остаются.
-- **Запуск** через `proton waitforexitandrun` с окружением Spacewar, оверлеем Steam (Shift+Tab), своими аргументами, переменными и DLL overrides для каждой игры; по желанию — через umu-launcher.
-- **Разделы Windows** (NTFS / exFAT): игры можно хранить там, префиксы Proton лаунчер положит в домашнюю папку.
-- **Языки интерфейса**: українська, русский, English, Deutsch, Polski, Español — выбирается в настройках и в мастере, по умолчанию язык системы. Перевод — таблица `scripts/translations.py`, новый язык добавляется колонкой.
-- **Material Design 3**: динамический цвет (вся палитра из одного выбранного цвета), светлая / тёмная / системная тема. Работает без сети — иконки и шрифт встроены.
+Самый простой вариант, подходит для любого дистрибутива: файл **`.AppImage`**.
 
-| Библиотека | Мастер первого запуска |
+```bash
+chmod +x OnlineFix-Launcher_*.AppImage
+./OnlineFix-Launcher_*.AppImage
+```
+
+Или пакет для своего дистрибутива:
+
+- Ubuntu, Debian, Mint: `sudo apt install ./OnlineFix-Launcher_*.deb`
+- Fedora: `sudo dnf install ./OnlineFix-Launcher-*.rpm`
+
+### Windows
+
+Скачайте и запустите **`OnlineFix-Launcher_*_x64-setup.exe`**.
+
+## Перед первой игрой
+
+Для игры по сети нужны:
+
+1. **Steam.** Он должен быть установлен и **запущен** во время игры, а вы — войти в аккаунт.
+2. **Proton** (только Linux). Лучше всего GE-Proton: лаунчер скачает его сам одной кнопкой.
+3. **7-Zip** для распаковки фиксов. На Linux это пакет `p7zip` (`7z`).
+
+При первом запуске откроется **мастер настройки**: он всё проверит, подскажет, чего не хватает, и покажет готовую команду установки для вашего дистрибутива.
+
+## Как скачать и запустить игру
+
+1. Откройте **Каталог**, найдите игру и нажмите на неё.
+2. Выберите версию (если их несколько) и папку, нажмите **«Скачать»**. Прогресс видно во вкладке **«Загрузки»**.
+3. Когда игра скачается, в **Библиотеке** нажмите **«Установить»**. Если откроется установщик игры, пройдите его как обычно.
+4. Лаунчер спросит, **какой файл запускает игру**: подходящий будет сверху списка.
+5. Онлайн-фикс поставится сам. На карточке игры зелёная галочка «Онлайн-фикс» значит, что всё готово.
+6. Запустите Steam и нажмите **«Играть»**.
+
+## Обновления
+
+- **Лаунчер** сам проверяет новые версии и предлагает обновиться.
+- **Игры и фиксы:** если вышла новая версия, на карточке в Библиотеке появится кнопка **«Обновить»**. Докачаются только изменённые файлы, сохранения останутся.
+
+Каталог FreeTP обновляется примерно раз в неделю, поэтому совсем свежие игры могут появиться с задержкой.
+
+## Если что-то не работает
+
+**Нет онлайна или игра не видит друзей.** Проверьте, что Steam запущен и вы вошли в аккаунт. Оба игрока должны использовать одинаковую версию игры и фикса.
+
+**Не открывается Shift+Tab.** Включите «Оверлей Steam» в лаунчере (Настройки → Proton) и в самом Steam (Настройки → В игре).
+
+**Игра не запускается (Linux).** Скачайте GE-Proton (Настройки → Proton → «Скачать последнюю») и выберите его в параметрах игры (меню ⋮ → «Параметры запуска»).
+
+**Фикс не скачался.** Сайт freetp.org иногда просит подтвердить, что вы не робот. В открывшемся окне подождите около 30 секунд, кнопка нажмётся сама. Если не помогло, откройте меню игры → «Страница на FreeTP» и скачайте фикс вручную.
+
+**Игры на диске Windows (NTFS) в Linux.** Так можно: лаунчер сам положит служебные файлы Proton в домашнюю папку.
+
+Не помогло? Создайте [**issue**](https://github.com/ollezore/LinFix/issues) и приложите файл `proton.log` из папки игры (меню игры → «Папка игры»).
+
+| Библиотека | Мастер настройки |
 |---|---|
 | ![Библиотека](docs/screenshots/library-light.png) | ![Мастер](docs/screenshots/wizard.png) |
 
-## Как это работает
+## Откуда берутся игры
 
-1. **Каталог.** Ищете игру, выбираете раздачу и папку, нажимаете «Скачать».
-2. **Загрузка.** Встроенный [librqbit](https://github.com/ikatson/rqbit) качает торрент в `<папка>/<игра>/download`. Если закрыть лаунчер, загрузка продолжится при следующем запуске.
-3. **Установка.** Архивы (`.zip/.rar/.7z/.iso`) распаковываются через 7z; `setup.exe` / `install*.exe` запускается через Proton в префиксе игры; если установщика нет — игра портативная.
-4. **Выбор exe.** Лаунчер показывает найденные exe (самые вероятные сверху).
-5. **Фикс.** Для раздач FreeTP с отдельным фиксом он скачивается и ставится в папку игры. freetp.org закрыт Cloudflare и таймером — тогда фикс качается через встроенное окно браузера, кнопка нажимается сама.
-6. **Запуск:** `proton waitforexitandrun game.exe` с `SteamAppId=480`, `SteamGameId=480`, `WINEDLLOVERRIDES="OnlineFix64=n;SteamOverlay64=n;winmm=n,b;dnet=n;steam_api64=n,b;winhttp=n,b"` и оверлеем Steam. Клиент Steam должен быть запущен.
+Лаунчер ничего не хранит и не раздаёт сам. Он читает открытые каталоги и скачивает игры торрентом, как обычный торрент-клиент:
 
-На **Windows** Proton не нужен: установщики и игры запускаются напрямую (с UAC, если нужно), онлайн — так же через Spacewar.
+- **FreeTP:** каталог [freetp-hydra-link](https://gitlab.com/BadKiko/freetp-hydra-link);
+- **Online-Fix:** каталог [hydralinks.cloud](https://hydralinks.cloud).
 
-### Источники каталогов
+Это неофициальный проект, он не связан с командами FreeTP и Online-Fix.
 
-- FreeTP: [`games-arachnel.json`](https://gitlab.com/BadKiko/freetp-hydra-link) — обновляется примерно раз в неделю; `games.json` (формат Hydra) — запасной вариант.
-- Online-Fix: [`hydralinks.cloud/sources/onlinefix.json`](https://hydralinks.cloud) (за Cloudflare — загружается через скрытое окно браузера), запасные зеркала на GitHub.
+<details>
+<summary><b>Для разработчиков</b></summary>
 
-Лаунчер не хранит и не раздаёт игры сам — он только читает открытые каталоги и качает торренты, как обычный торрент-клиент.
+### Сборка
 
-## Сборка из исходников
-
-### Linux — одной командой
+На Linux одной командой: скрипт сам поставит зависимости, Rust и Node.js.
 
 ```bash
-bash build-linux.sh
+bash build-linux.sh        # → dist/onlinefix-launcher + ярлык в меню
 ```
 
-Скрипт поставит зависимости (Debian/Ubuntu/Mint, Arch/Manjaro/CachyOS, Fedora/Nobara), Rust и Node.js, соберёт лаунчер в `dist/linfix` и добавит его в меню приложений.
-
-### Вручную
+Вручную: нужны Rust, Node.js и зависимости Tauri ([список](https://v2.tauri.app/start/prerequisites/)), затем:
 
 ```bash
-# Debian / Ubuntu
-sudo apt install libwebkit2gtk-4.1-dev build-essential curl wget file libxdo-dev \
-  libssl-dev libayatana-appindicator3-dev librsvg2-dev cmake clang p7zip-full
-# Arch
-sudo pacman -S webkit2gtk-4.1 base-devel curl wget file openssl appmenu-gtk-module \
-  libappindicator-gtk3 librsvg cmake clang 7zip unrar
-# Fedora
-sudo dnf install webkit2gtk4.1-devel openssl-devel curl wget file libappindicator-gtk3-devel \
-  librsvg2-devel cmake clang p7zip p7zip-plugins
-sudo dnf group install "c-development"
-
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh   # Rust
-
-npm install          # Tauri CLI
-npm run dev          # режим разработки
-npm run build        # .AppImage / .deb / .rpm → src-tauri/target/release/bundle/
+npm install
+npm run dev      # режим разработки
+npm run build    # .AppImage / .deb / .rpm / .exe → src-tauri/target/release/bundle/
 ```
 
-Интерфейс можно посмотреть без сборки: откройте `ui/index.html` в браузере — он запустится с демо-данными.
+Интерфейс можно открыть без сборки: `ui/index.html` в браузере запустится с демо-данными.
 
-### Структура
+### Устройство
 
-```
-ui/                 интерфейс (HTML/CSS/JS без сборщика, Material Design 3)
-  theme.js          динамический цвет MD3
-  wizard.js         мастер первого запуска
-src-tauri/src/
-  lib.rs            команды Tauri: библиотека, загрузки, установка, запуск, обновления
-  catalog.rs        загрузка и разбор каталогов FreeTP / Online-Fix
-  popular.rs        рейтинг популярности FreeTP
-  covers.rs         обложки (Steam, постеры FreeTP)
-  proton.rs         Steam / Proton / umu, запуск, оверлей
-  files.rs          поиск setup/exe, распаковка, фиксы
-  library.rs        модель игры, настройки, JSON-хранилище
-```
+Tauri 2: интерфейс на HTML/CSS/JS без сборщика (`ui/`), логика на Rust (`src-tauri/src/`).
 
-Данные лаунчера: `~/.local/share/org.linfix.launcher/` (`library.json`, `settings.json`, кэш). Игры по умолчанию: `~/Games/LinFix/`.
+| Файл | Что делает |
+|---|---|
+| `ui/app.js` | интерфейс: каталог, библиотека, загрузки, настройки |
+| `ui/wizard.js` | мастер первого запуска |
+| `ui/theme.js` | цвета Material Design 3 |
+| `ui/i18n.js`, `scripts/translations.py` | переводы (таблица → `ui/locales/*.js`) |
+| `src-tauri/src/lib.rs` | команды: загрузки, установка, запуск, обновления |
+| `src-tauri/src/catalog.rs` | каталоги FreeTP и Online-Fix |
+| `src-tauri/src/proton.rs` | Steam, Proton, запуск игр |
+| `src-tauri/src/files.rs` | поиск exe, распаковка, фиксы |
 
-## Как выпустить версию
+Данные лаунчера: `~/.local/share/org.linfix.launcher/`.
 
-1. Поднять версию в `src-tauri/tauri.conf.json` (и `package.json`, `src-tauri/Cargo.toml`), дописать `CHANGELOG.md`.
-2. Закоммитить и поставить тег: `git tag v0.2.0 && git push --tags`.
-3. GitHub Actions соберёт AppImage / .deb / .rpm / .exe и создаст **черновик** релиза — проверить и нажать «Publish». После публикации лаунчеры у всех предложат обновиться.
+### Перевод
 
-Для подписи обновлений в секретах репозитория должен быть `TAURI_SIGNING_PRIVATE_KEY` (содержимое приватного ключа; публичный — в `tauri.conf.json → plugins.updater.pubkey`).
+Все строки лежат в одной таблице `scripts/translations.py`: русский текст и переводы в колонках. После правки выполните `python scripts/translations.py`. Новый язык — новая колонка плюс строка в `ui/i18n.js`.
 
-## Ошибки и предложения
+### Выпуск версии
 
-[Issues](https://github.com/ollezore/LinFix/issues) — приложите `proton.log` / `installer.log` из папки игры (меню игры → «Папка игры»).
+1. Поднять версию в `src-tauri/tauri.conf.json`, `package.json`, `src-tauri/Cargo.toml` и дописать `CHANGELOG.md`.
+2. `git tag vX.Y.Z && git push --tags`
+3. GitHub Actions соберёт файлы и создаст черновик релиза: проверить и нажать «Publish».
+
+Для подписи обновлений в секретах репозитория нужен `TAURI_SIGNING_PRIVATE_KEY`.
+
+</details>
 
 ## Лицензия
 
-[GNU GPL v3.0 или новее](LICENSE). Шрифт Roboto — SIL Open Font License 1.1 (`ui/fonts/OFL.txt`), иконки Material Symbols — Apache 2.0.
+[GNU GPL v3](LICENSE). Шрифт Roboto — SIL OFL 1.1, иконки Material Symbols — Apache 2.0.

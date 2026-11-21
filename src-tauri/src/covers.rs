@@ -30,7 +30,7 @@ fn norm(s: &str) -> String {
 
 fn client() -> anyhow::Result<reqwest::Client> {
     Ok(reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) LinFix/0.1")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) OnlineFix-Launcher/0.1")
         .timeout(Duration::from_secs(10))
         .build()?)
 }
@@ -174,6 +174,23 @@ pub async fn lookup(title: &str, article: Option<&str>) -> anyhow::Result<Option
         }
     }
     Ok(None)
+}
+
+/// Ссылка на страницу игры в магазине Steam. Если игру не нашли —
+/// поиск Steam по названию (там почти всегда найдётся нужная).
+pub async fn steam_store_url(title: &str) -> anyhow::Result<String> {
+    let c = client()?;
+    for v in &title_variants(title) {
+        let items = steam_search(&c, v).await?;
+        if let Some(item) = pick(&items, v, false) {
+            return Ok(format!("https://store.steampowered.com/app/{}/", item.id));
+        }
+    }
+    let clean = title_variants(title).pop().unwrap_or_else(|| title.to_string());
+    Ok(format!(
+        "https://store.steampowered.com/search/?term={}",
+        urlencoding::encode(&clean)
+    ))
 }
 
 #[cfg(test)]

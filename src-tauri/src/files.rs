@@ -310,7 +310,7 @@ pub async fn download_addon(addon: &Addon, dest_dir: &Path) -> anyhow::Result<Pa
     tokio::fs::create_dir_all(dest_dir).await?;
 
     let client = reqwest::Client::builder()
-        .user_agent("Mozilla/5.0 (X11; Linux x86_64) LinFix/0.1")
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64) OnlineFix-Launcher/0.1")
         .cookie_store(true)
         .build()?;
 

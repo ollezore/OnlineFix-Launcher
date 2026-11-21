@@ -1,5 +1,5 @@
-// LinFix — лаунчер игр FreeTP / Online-Fix для Linux
-// Copyright (C) 2026  LinFix contributors
+// OnlineFix-Launcher — лаунчер игр FreeTP / Online-Fix для Linux
+// Copyright (C) 2026  OnlineFix-Launcher contributors
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -93,7 +93,7 @@ impl AppState {
                         enable_upnp_port_forwarding: true,
                         ..Default::default()
                     }),
-                    client_name_and_version: Some("LinFix/0.1".into()),
+                    client_name_and_version: Some("OnlineFix-Launcher/0.1".into()),
                     ..Default::default()
                 };
                 if settings.download_limit_mbps > 0 {
@@ -704,6 +704,12 @@ async fn finish_update_download(app: &AppHandle, id: &str) {
     notify(app);
 }
 
+/// Страница игры в Steam (для кнопки в окне раздачи).
+#[tauri::command]
+async fn steam_page(title: String) -> CmdResult<String> {
+    covers::steam_store_url(&title).await.map_err(err)
+}
+
 /// id статей FreeTP по популярности (посещаемости), самые популярные первыми.
 #[tauri::command]
 async fn popular(state: State<'_, AppState>, refresh: bool) -> CmdResult<Vec<u32>> {
@@ -1208,7 +1214,7 @@ async fn download_in_webview(app: &AppHandle, page: &str, dest_dir: &Path) -> Cm
             page,
             dest_dir,
             script: AUTOCLICK_JS,
-            title: "LinFix — скачивание фикса (подождите ~30 с, кнопка нажмётся сама)",
+            title: "OnlineFix-Launcher — скачивание фикса (подождите ~30 с, кнопка нажмётся сама)",
             visible: true,
             timeout_secs: 600,
         },
@@ -1228,7 +1234,7 @@ pub(crate) async fn fetch_json_via_webview(
             page: url,
             dest_dir,
             script: GRAB_JSON_JS,
-            title: "LinFix — загрузка базы",
+            title: "OnlineFix-Launcher — загрузка базы",
             visible: false,
             timeout_secs: 40,
         },
@@ -1694,6 +1700,7 @@ pub fn run() {
             check_updates,
             start_game_update,
             app_version,
+            steam_page,
             check_app_update,
             install_app_update,
             dir_info,
@@ -1722,5 +1729,5 @@ pub fn run() {
             install_ge_proton,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running LinFix");
+        .expect("error while running OnlineFix-Launcher");
 }

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# LinFix — сборка под Linux одной командой.  SPDX-License-Identifier: GPL-3.0-or-later
+# OnlineFix-Launcher — сборка под Linux одной командой.  SPDX-License-Identifier: GPL-3.0-or-later
 #
 #   chmod +x build-linux.sh && ./build-linux.sh
 #
 # Ставит зависимости (Debian/Ubuntu/Mint, Arch/Manjaro/CachyOS, Fedora/Nobara),
-# Rust и Node.js при необходимости, собирает лаунчер и кладёт его в ./dist/linfix.
+# Rust и Node.js при необходимости, собирает лаунчер и кладёт его в ./dist/onlinefix-launcher.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -42,28 +42,29 @@ source "$HOME/.cargo/env" 2>/dev/null || true
 say "Ставлю Tauri CLI"
 npm install
 
-say "Собираю LinFix (первый раз 5–15 минут)"
+say "Собираю OnlineFix-Launcher (первый раз 5–15 минут)"
 npx tauri build --no-bundle
 
 mkdir -p dist
-cp src-tauri/target/release/linfix dist/linfix
-chmod +x dist/linfix
+cp src-tauri/target/release/onlinefix-launcher dist/onlinefix-launcher
+chmod +x dist/onlinefix-launcher
 
-# Ярлык в меню приложений
+# Ярлык в меню приложений (старый ярлык LinFix — убираем)
+rm -f "$HOME/.local/share/applications/linfix.desktop" "$HOME/.local/share/icons/hicolor/128x128/apps/linfix.png"
 mkdir -p "$HOME/.local/share/applications" "$HOME/.local/share/icons/hicolor/128x128/apps"
-cp src-tauri/icons/128x128.png "$HOME/.local/share/icons/hicolor/128x128/apps/linfix.png"
-cat > "$HOME/.local/share/applications/linfix.desktop" <<EOF
+cp src-tauri/icons/128x128.png "$HOME/.local/share/icons/hicolor/128x128/apps/onlinefix-launcher.png"
+cat > "$HOME/.local/share/applications/onlinefix-launcher.desktop" <<EOF
 [Desktop Entry]
 Type=Application
-Name=LinFix
+Name=OnlineFix-Launcher
 Comment=Лаунчер игр FreeTP / Online-Fix (Proton + Steam)
-Exec=$(pwd)/dist/linfix
-Icon=linfix
+Exec=$(pwd)/dist/onlinefix-launcher
+Icon=onlinefix-launcher
 Categories=Game;
 Terminal=false
 EOF
 
 say "Готово!"
-echo "Запуск:  $(pwd)/dist/linfix"
-echo "Также LinFix появился в меню приложений."
+echo "Запуск:  $(pwd)/dist/onlinefix-launcher"
+echo "Также OnlineFix-Launcher появился в меню приложений."
 echo "Для онлайна нужен запущенный Steam; Proton (GE-Proton) можно скачать в «Настройки → Система»."

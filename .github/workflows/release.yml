@@ -50,10 +50,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: v__VERSION__
-          releaseName: LinFix v__VERSION__
+          releaseName: OnlineFix-Launcher v__VERSION__
           releaseBody: |
-            **Linux:** скачайте `.AppImage`, сделайте исполняемым (`chmod +x LinFix_*.AppImage`) и запустите. Или `.deb` (Ubuntu/Debian/Mint), `.rpm` (Fedora).
-            **Windows:** установщик `LinFix_*_x64-setup.exe`.
+            **Linux:** скачайте `.AppImage`, сделайте исполняемым (`chmod +x OnlineFix-Launcher_*.AppImage`) и запустите. Или `.deb` (Ubuntu/Debian/Mint), `.rpm` (Fedora).
+            **Windows:** установщик `OnlineFix-Launcher_*_x64-setup.exe`.
 
             Что нового — в [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md).
           releaseDraft: true

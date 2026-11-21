@@ -250,7 +250,7 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
     }
 
     let client = reqwest::Client::builder()
-        .user_agent("LinFix/0.1")
+        .user_agent("OnlineFix-Launcher/0.1")
         .build()?;
     let rel: Release = client
         .get("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest")

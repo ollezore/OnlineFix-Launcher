@@ -1,4 +1,4 @@
-// LinFix — перевод интерфейса. SPDX-License-Identifier: GPL-3.0-or-later
+// OnlineFix-Launcher — перевод интерфейса. SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Исходный язык — русский: строки интерфейса и сообщения бэкенда пишутся по-русски,
 // а словари в ui/locales/<язык>.js переводят их («русский текст» → перевод).

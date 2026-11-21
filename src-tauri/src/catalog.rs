@@ -222,7 +222,7 @@ pub fn parse(bytes: &[u8], source: &str) -> anyhow::Result<Vec<CatalogEntry>> {
 
 pub async fn download(url: &str) -> anyhow::Result<Vec<u8>> {
     let resp = reqwest::Client::builder()
-        .user_agent("LinFix/0.1")
+        .user_agent("OnlineFix-Launcher/0.1")
         .build()?
         .get(url)
         .send()

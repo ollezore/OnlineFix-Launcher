@@ -1,4 +1,4 @@
-// LinFix — динамический цвет Material Design 3. SPDX-License-Identifier: GPL-3.0-or-later
+// OnlineFix-Launcher — динамический цвет Material Design 3. SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Из одного «исходного» цвета строятся тональные палитры (как в Material You),
 // а из них — все цветовые роли схемы для светлой и тёмной темы.
