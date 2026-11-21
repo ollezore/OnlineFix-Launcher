@@ -1,0 +1,204 @@
+<!doctype html>
+<!-- LinFix — SPDX-License-Identifier: GPL-3.0-or-later -->
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinFix</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- Динамический цвет MD3 — до отрисовки, чтобы не мигала тема -->
+  <script src="theme.js"></script>
+</head>
+<body>
+<div class="app">
+  <nav class="rail">
+    <div class="logo">LF</div>
+    <button class="rail-item active" data-view="catalog">
+      <span class="ind" data-icon="explore"></span><span class="label-m">Каталог</span>
+    </button>
+    <button class="rail-item" data-view="library">
+      <span class="ind"><span data-icon="games"></span><span class="badge hidden" id="lib-badge" title="Доступны обновления">0</span></span>
+      <span class="label-m">Библиотека</span>
+    </button>
+    <button class="rail-item" data-view="downloads">
+      <span class="ind"><span data-icon="download"></span><span class="badge hidden" id="dl-badge">0</span></span>
+      <span class="label-m">Загрузки</span>
+    </button>
+    <div class="spacer"></div>
+    <button class="rail-item" data-view="settings">
+      <span class="ind" data-icon="settings"></span><span class="label-m">Настройки</span>
+    </button>
+  </nav>
+
+  <main class="main">
+    <!-- Каталог -->
+    <section class="view active" id="view-catalog">
+      <div class="tabs" id="catalog-tabs" role="tablist">
+        <button class="tab sl" role="tab" data-catalog="freetp">
+          <span class="tab-in"><span data-icon="games"></span><span class="tab-label">FreeTP</span><span class="tab-badge" id="tab-count-freetp"></span></span>
+        </button>
+        <button class="tab sl" role="tab" data-catalog="onlinefix">
+          <span class="tab-in"><span data-icon="wrench"></span><span class="tab-label">Online-Fix</span><span class="tab-badge" id="tab-count-onlinefix"></span></span>
+        </button>
+      </div>
+      <div class="topbar">
+        <label class="search">
+          <span data-icon="search"></span>
+          <input id="search" type="search" placeholder="Поиск по 2900+ играм с онлайн-фиксом" autocomplete="off" />
+          <button class="icon-btn sl" id="refresh-catalog" title="Обновить базу"><span data-icon="refresh"></span></button>
+        </label>
+      </div>
+      <div class="chips" id="catalog-chips">
+        <button class="chip selected sl" data-filter="all"><span data-icon="check"></span>Все</button>
+        <button class="chip sl freetp-only" data-filter="ready"><span data-icon="check"></span>Фикс в раздаче</button>
+        <button class="chip sl freetp-only" data-filter="addon"><span data-icon="check"></span>Фикс отдельно</button>
+        <button class="chip sl" data-filter="new"><span data-icon="check"></span>Свежие</button>
+        <button class="chip sl" data-filter="top"><span data-icon="check"></span>Топ-100</button>
+        <span class="count body-m muted" id="catalog-count"></span>
+        <button class="btn text has-icon sort-btn" id="catalog-sort" title="Сортировка">
+          <span data-icon="sort"></span><span id="catalog-sort-label">Популярные</span><span class="drop" data-icon="drop"></span>
+        </button>
+      </div>
+      <div class="catalog-meta body-s muted" id="catalog-meta"></div>
+      <div class="content" id="catalog-content">
+        <div class="empty" id="catalog-loading"><div class="spinner"></div><span class="body-l">Загружаю базу игр…</span></div>
+        <div class="grid" id="catalog-grid"></div>
+        <div class="sentinel" id="catalog-sentinel"></div>
+      </div>
+    </section>
+
+    <!-- Библиотека -->
+    <section class="view" id="view-library">
+      <div class="topbar"><h1 class="headline-s">Библиотека</h1></div>
+      <div class="content">
+        <div class="banner hidden" id="steam-banner">
+          <span data-icon="warning"></span>
+          <div class="grow body-m">Steam не запущен — онлайн через Spacewar (480) работать не будет.</div>
+          <button class="btn text" id="banner-start-steam">Запустить Steam</button>
+        </div>
+        <div class="lib-list" id="library-list"></div>
+      </div>
+    </section>
+
+    <!-- Загрузки -->
+    <section class="view" id="view-downloads">
+      <div class="topbar"><h1 class="headline-s">Загрузки</h1></div>
+      <div class="content"><div id="downloads-list"></div></div>
+    </section>
+
+    <!-- Настройки -->
+    <section class="view" id="view-settings">
+      <div class="topbar"><h1 class="headline-s">Настройки</h1></div>
+      <div class="content">
+        <div class="settings">
+          <div class="section">
+            <h2 class="title-s">Система</h2>
+            <div class="list" id="system-status"></div>
+          </div>
+
+          <div class="section">
+            <h2 class="title-s">Игры</h2>
+            <div class="list">
+              <div class="row">
+                <div class="grow">
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Папка для игр</label>
+                      <input id="set-games-dir" />
+                    </div>
+                    <button class="btn outlined" id="browse-games-dir">Обзор</button>
+                  </div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Ограничение скорости</div><div class="body-m muted">МБ/с, 0 — без лимита. Применится после перезапуска</div></div>
+                <div class="field" style="width:120px"><input id="set-limit" type="number" min="0" /></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section" id="proton-section">
+            <h2 class="title-s">Proton</h2>
+            <div class="list">
+              <div class="row">
+                <div class="grow">
+                  <div class="field">
+                    <label>Версия Proton по умолчанию</label>
+                    <select id="set-proton"></select>
+                  </div>
+                </div>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">GE-Proton</div><div class="body-m muted" id="ge-desc">Рекомендуется для игр с онлайн-фиксом</div></div>
+                <button class="btn tonal has-icon" id="ge-download"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Оверлей Steam (Shift+Tab)</div><div class="body-m muted">Подключает оверлей Steam к игре, как при запуске из Steam: друзья, приглашения в лобби. Выключите, если игра падает или тормозит</div></div>
+                <label class="switch"><input type="checkbox" id="set-overlay" /><span></span></label>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Запускать через umu-launcher</div><div class="body-m muted" id="umu-desc">Steam Runtime контейнер и фиксы protonfixes</div></div>
+                <label class="switch"><input type="checkbox" id="set-umu" /><span></span></label>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Логи Proton</div><div class="body-m muted">proton.log / installer.log в папке игры</div></div>
+                <label class="switch"><input type="checkbox" id="set-log" /><span></span></label>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2 class="title-s">Оформление</h2>
+            <div class="list">
+              <div class="row">
+                <div class="grow"><div class="body-l">Тема</div><div class="body-m muted">Светлая, тёмная или как в системе</div></div>
+                <div class="segmented" id="set-theme">
+                  <button data-v="system"><span data-icon="check"></span>Системная</button>
+                  <button data-v="light"><span data-icon="check"></span>Светлая</button>
+                  <button data-v="dark"><span data-icon="check"></span>Тёмная</button>
+                </div>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Мастер первого запуска</div><div class="body-m muted">Проверка Steam, Proton, архиваторов и папки для игр</div></div>
+                <button class="btn tonal" id="open-wizard">Открыть</button>
+              </div>
+              <div class="row wrap">
+                <div class="grow"><div class="body-l">Цвет интерфейса</div><div class="body-m muted">Вся палитра Material You строится из одного цвета</div></div>
+                <div class="swatches" id="set-seed"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2 class="title-s">О программе</h2>
+            <div class="list">
+              <div class="row">
+                <div class="grow"><div class="body-l">LinFix <span id="app-version"></span></div><div class="body-m muted" id="app-update-desc">Обновления приходят с GitHub Releases</div></div>
+                <button class="btn tonal has-icon" id="app-update-check"><span data-icon="refresh"></span>Проверить обновления</button>
+              </div>
+              <div class="row">
+                <div class="grow"><div class="body-l">Исходный код и сообщения об ошибках</div><div class="body-m muted">GitHub</div></div>
+                <button class="btn text has-icon" id="open-repo"><span data-icon="open"></span>Открыть</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="body-s muted" style="padding: 0 16px 24px">
+            Свободное ПО под лицензией GNU GPL v3. Базы игр:
+            <a href="#" data-url="https://gitlab.com/BadKiko/freetp-hydra-link">freetp-hydra-link</a>,
+            <a href="#" data-url="https://hydralinks.cloud">hydralinks.cloud</a>. Шрифт Roboto — SIL OFL 1.1.
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="dialog"></dialog>
+<div class="snackbar" id="snackbar"><span class="msg"></span><button class="btn text hidden"></button></div>
+
+<script src="icons.js"></script>
+<script src="wizard.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

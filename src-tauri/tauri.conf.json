@@ -1,0 +1,68 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LinFix",
+  "version": "0.1.0",
+  "identifier": "org.linfix.launcher",
+  "build": {
+    "frontendDist": "../ui"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "label": "main",
+        "title": "LinFix",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 940,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Game",
+    "license": "GPL-3.0-or-later",
+    "shortDescription": "FreeTP / Online-Fix launcher for Linux",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "p7zip-full"
+        ]
+      }
+    },
+    "createUpdaterArtifacts": true,
+    "publisher": "LinFix contributors",
+    "windows": {
+      "nsis": {
+        "languages": [
+          "Russian",
+          "English"
+        ],
+        "displayLanguageSelector": false
+      }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1RjBCMTEyRDg3QUI2RDYKUldUV3RucllFckh3ZGRtNTQwUEMyM1BFYXlBRk9tejBISGwybXUzL1Y1Q2toKy9QV2FRWVFhdmYK",
+      "endpoints": [
+        "https://github.com/ollezore/LinFix/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}

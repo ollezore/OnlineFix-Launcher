@@ -1,0 +1,40 @@
+name: Ошибка
+description: Что-то не работает — игра не ставится, не запускается, нет онлайна
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: Что случилось
+      description: Что делали, что ожидали и что получилось. Текст ошибки — целиком.
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Игра и раздача
+      placeholder: "Schedule I — FreeTP / Online-Fix 0.4.6f13"
+  - type: input
+    id: system
+    attributes:
+      label: Система
+      placeholder: "CachyOS / Ubuntu 24.04 / Windows 11"
+    validations:
+      required: true
+  - type: input
+    id: proton
+    attributes:
+      label: Версия Proton
+      placeholder: "GE-Proton10-25"
+  - type: input
+    id: version
+    attributes:
+      label: Версия LinFix
+      description: Настройки → О программе
+      placeholder: "0.1.0"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: "proton.log / installer.log из папки игры (меню игры → «Папка игры»)."
+      render: text

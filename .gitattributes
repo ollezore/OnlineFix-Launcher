@@ -1,0 +1,6 @@
+# Единые переводы строк (Unix) — иначе build-linux.sh сломается на Linux
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.icns binary
+*.woff2 binary

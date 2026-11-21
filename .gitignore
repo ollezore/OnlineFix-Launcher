@@ -1,0 +1,10 @@
+node_modules/
+src-tauri/target/
+src-tauri/gen/
+
+# сборки и архивы
+dist/
+*.zip
+# ключи подписи обновлений — никогда не коммитить
+*.key
+*.key.pub
