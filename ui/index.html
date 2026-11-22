@@ -140,9 +140,29 @@
                   </div>
                 </div>
               </div>
+              <div class="row proton-src" data-kind="ge">
+                <div class="grow"><div class="body-l">GE-Proton</div><div class="body-m muted">Рекомендуется для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр. При «Автоматически» берётся самая новая версия GE.</div><div class="body-s muted proton-have"></div><div class="progress" hidden><i style="width:0%"></i></div></div>
+                <button class="btn tonal has-icon"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
+              <div class="row proton-src" data-kind="cachyos">
+                <div class="row proton-src" data-kind="cachyos-v3">
+                <div class="grow"><div class="body-l">Proton-CachyOS v3</div><div class="body-m muted">Та же сборка, оптимизированная под x86-64-v3 (AVX2): немного быстрее, но только для процессоров Intel с 2013 года (Haswell) и AMD Zen</div><div class="body-s muted proton-have"></div><div class="progress" hidden><i style="width:0%"></i></div></div>
+                <button class="btn tonal has-icon"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
+              <div class="grow"><div class="body-l">Proton-CachyOS</div><div class="body-m muted">Сборка CachyOS: свежий Wine, оптимизации и патчи производительности. Обычная x86_64 — идёт на любом процессоре и дистрибутиве</div><div class="body-s muted proton-have"></div><div class="progress" hidden><i style="width:0%"></i></div></div>
+                <button class="btn tonal has-icon"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
+              <div class="row proton-src" data-kind="dw">
+                <div class="grow"><div class="body-l">DW-Proton</div><div class="body-m muted">Dawn Winery: форк Proton-CachyOS с исправлениями для игр, которые плохо идут в обычном Proton</div><div class="body-s muted proton-have"></div><div class="progress" hidden><i style="width:0%"></i></div></div>
+                <button class="btn tonal has-icon"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
+              <div class="row proton-src" data-kind="em">
+                <div class="grow"><div class="body-l">Proton-EM</div><div class="body-m muted">От автора Wayland-драйвера Wine: лучшая поддержка Wayland и HDR. Включите «Wayland» ниже</div><div class="body-s muted proton-have"></div><div class="progress" hidden><i style="width:0%"></i></div></div>
+                <button class="btn tonal has-icon"><span data-icon="download"></span>Скачать последнюю</button>
+              </div>
               <div class="row">
-                <div class="grow"><div class="body-l">GE-Proton</div><div class="body-m muted" id="ge-desc">Рекомендуется для игр с онлайн-фиксом</div></div>
-                <button class="btn tonal has-icon" id="ge-download"><span data-icon="download"></span>Скачать последнюю</button>
+                <div class="grow"><div class="body-l">Wayland</div><div class="body-m muted">Запускать игры через Wayland-драйвер Wine (PROTON_ENABLE_WAYLAND=1) без XWayland. Работает в GE-Proton, CachyOS, DW и EM. Выключите, если игра не запускается</div></div>
+                <label class="switch"><input type="checkbox" id="set-wayland" /><span></span></label>
               </div>
               <div class="row">
                 <div class="grow"><div class="body-l">Оверлей Steam (Shift+Tab)</div><div class="body-m muted">Подключает оверлей Steam к игре, как при запуске из Steam: друзья, приглашения в лобби. Выключите, если игра падает или тормозит</div></div>
@@ -220,6 +240,7 @@
 <script src="locales/es.js"></script>
 <script src="i18n.js"></script>
 <script src="icons.js"></script>
+<script src="wave.js"></script>
 <script src="wizard.js"></script>
 <script src="app.js"></script>
 </body>

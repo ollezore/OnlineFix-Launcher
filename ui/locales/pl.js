@@ -370,5 +370,15 @@
  "Онлайн в раздаче": "Online w paczce",
  "Страница игры на FreeTP": "Strona gry na FreeTP",
  "Найти на FreeTP": "Szukaj na FreeTP",
- "Убрал ярлык сайта, который создал установщик": "Usunięto skrót do strony utworzony przez instalator"
+ "Убрал ярлык сайта, который создал установщик": "Usunięto skrót do strony utworzony przez instalator",
+ "Распаковываю {0}…": "Rozpakowuję {0}…",
+ "Не удалось распаковать архив {0} (нужен tar с поддержкой xz)": "Nie udało się rozpakować archiwum {0} (potrzebny tar z obsługą xz)",
+ "Рекомендуется для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр. При «Автоматически» берётся самая новая версия GE.": "Zalecany do gier z online-fixem: działa bez Steam Runtime i zawiera więcej poprawek do gier. Przy „Automatycznie” używana jest najnowsza wersja GE.",
+ "Сборка CachyOS: свежий Wine, оптимизации и патчи производительности. Обычная x86_64 — идёт на любом процессоре и дистрибутиве": "Kompilacja CachyOS: świeży Wine, optymalizacje i poprawki wydajności. Zwykła x86_64 — działa na każdym procesorze i dystrybucji",
+ "Та же сборка, оптимизированная под x86-64-v3 (AVX2): немного быстрее, но только для процессоров Intel с 2013 года (Haswell) и AMD Zen": "Ta sama kompilacja zoptymalizowana pod x86-64-v3 (AVX2): nieco szybsza, ale tylko dla procesorów Intel od 2013 roku (Haswell) i AMD Zen",
+ "Ваш процессор не поддерживает x86-64-v3 — используйте обычный Proton-CachyOS": "Twój procesor nie obsługuje x86-64-v3 — użyj zwykłego Proton-CachyOS",
+ "Процессор не поддерживает x86-64-v3 (AVX2/FMA) — скачайте обычный Proton-CachyOS": "Procesor nie obsługuje x86-64-v3 (AVX2/FMA) — pobierz zwykły Proton-CachyOS",
+ "Dawn Winery: форк Proton-CachyOS с исправлениями для игр, которые плохо идут в обычном Proton": "Dawn Winery: fork Proton-CachyOS z poprawkami do gier, które słabo działają w zwykłym Protonie",
+ "От автора Wayland-драйвера Wine: лучшая поддержка Wayland и HDR. Включите «Wayland» ниже": "Od autora sterownika Wayland w Wine: najlepsza obsługa Wayland i HDR. Włącz „Wayland” poniżej",
+ "Запускать игры через Wayland-драйвер Wine (PROTON_ENABLE_WAYLAND=1) без XWayland. Работает в GE-Proton, CachyOS, DW и EM. Выключите, если игра не запускается": "Uruchamiaj gry przez sterownik Wayland w Wine (PROTON_ENABLE_WAYLAND=1) bez XWayland. Działa w GE-Proton, CachyOS, DW i EM. Wyłącz, jeśli gra się nie uruchamia"
 };

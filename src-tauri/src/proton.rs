@@ -264,6 +264,8 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 fn rank(name: &str) -> u8 {
     let n = name.to_lowercase();
     if n.contains("ge-proton") {
+        4
+    } else if n.contains("cachyos") || n.contains("dwproton") || n.contains("proton-em") {
         3
     } else if n.contains("experimental") {
         2
@@ -274,9 +276,105 @@ fn rank(name: &str) -> u8 {
     }
 }
 
-/// Скачивает свежий GE-Proton с GitHub и распаковывает в compatibilitytools.d.
+/// Сборки Proton, которые лаунчер умеет скачивать сам.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ProtonKind {
+    /// GloriousEggroll/proton-ge-custom — по умолчанию.
+    Ge,
+    /// CachyOS/proton-cachyos — оптимизации CachyOS, свежий Wine. Обычная сборка x86_64.
+    Cachyos,
+    /// То же, собранное под x86-64-v3 (AVX2, FMA…): быстрее, но только на новых CPU
+    /// (Intel Haswell 2013+, AMD Excavator/Zen).
+    #[serde(rename = "cachyos-v3")]
+    CachyosV3,
+    /// Dawn Winery DW-Proton (форк CachyOS с фиксами для гача-игр), на своём Forgejo.
+    Dw,
+    /// Proton-EM — от автора Wayland-драйвера Wine (Wayland, HDR).
+    Em,
+}
+
+impl ProtonKind {
+    pub fn title(self) -> &'static str {
+        match self {
+            ProtonKind::Ge => "GE-Proton",
+            ProtonKind::Cachyos => "Proton-CachyOS",
+            ProtonKind::CachyosV3 => "Proton-CachyOS v3",
+            ProtonKind::Dw => "DW-Proton",
+            ProtonKind::Em => "Proton-EM",
+        }
+    }
+    /// API последнего релиза (GitHub или совместимый с ним Forgejo).
+    fn latest_url(self) -> &'static str {
+        match self {
+            ProtonKind::Ge => "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest",
+            ProtonKind::Cachyos | ProtonKind::CachyosV3 => {
+                "https://api.github.com/repos/CachyOS/proton-cachyos/releases/latest"
+            }
+            ProtonKind::Dw => "https://dawn.wine/api/v1/repos/dawn-winery/dwproton/releases/latest",
+            ProtonKind::Em => "https://api.github.com/repos/BananaWorks07/Proton/releases/latest",
+        }
+    }
+}
+
+const ARCHIVE_EXTS: [&str; 3] = [".tar.gz", ".tar.xz", ".tar.zst"];
+
+fn archive_stem(name: &str) -> Option<&str> {
+    ARCHIVE_EXTS.iter().find_map(|e| name.strip_suffix(e))
+}
+
+/// Выбирает архив под процессор из ассетов релиза.
+/// GE: -x86_64 / -aarch64; CachyOS: -x86_64, -x86_64_v3 (только новые CPU), -arm64;
+/// DW: -x86_64; EM: без суффикса (x86_64). `v3` — нужна именно сборка x86_64_v3.
+fn pick_asset<'a, A>(assets: &'a [A], name: impl Fn(&A) -> &str, v3: bool) -> Option<&'a A> {
+    let arch = host_arch();
+    let tars: Vec<&A> = assets.iter().filter(|a| archive_stem(name(a)).is_some()).collect();
+    let is_arm = |n: &str| n.contains("aarch64") || n.contains("arm64");
+    if v3 {
+        if arch != "x86_64" {
+            return None;
+        }
+        return tars
+            .into_iter()
+            .find(|a| archive_stem(name(a)).is_some_and(|s| s.ends_with("x86_64_v3")));
+    }
+    if arch == "aarch64" {
+        return tars.into_iter().find(|a| is_arm(name(a)));
+    }
+    // Точное «-x86_64» без _v2/_v3 — работает на любом x86_64.
+    tars.iter()
+        .find(|a| archive_stem(name(a)).is_some_and(|s| s.ends_with("x86_64")))
+        .or_else(|| tars.iter().find(|a| !is_arm(name(a)) && !name(a).contains("x86_64_v")))
+        .copied()
+}
+
+/// Поддерживает ли процессор уровень x86-64-v3 (нужен для сборок *_v3).
+/// Смотрим флаги в /proc/cpuinfo; если прочитать не удалось — false.
+pub fn cpu_x86_64_v3() -> bool {
+    if host_arch() != "x86_64" {
+        return false;
+    }
+    let Ok(info) = std::fs::read_to_string("/proc/cpuinfo") else {
+        return false;
+    };
+    let Some(flags) = info.lines().find(|l| l.starts_with("flags")) else {
+        return false;
+    };
+    let have: std::collections::HashSet<&str> = flags.split_whitespace().collect();
+    // abm = lzcnt (так флаг называется и у AMD, и у Intel).
+    ["avx", "avx2", "bmi1", "bmi2", "f16c", "fma", "abm", "movbe", "xsave"]
+        .iter()
+        .all(|f| have.contains(f))
+}
+
+/// Скачивает свежую сборку Proton и распаковывает в compatibilitytools.d.
+/// `progress(pct)` — проценты загрузки (0..=100), `status(text)` — этапы для уведомлений.
 /// Возвращает (версия, уже_была_установлена).
-pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(String, bool)> {
+pub async fn install_proton(
+    kind: ProtonKind,
+    progress: impl Fn(u8),
+    status: impl Fn(String),
+) -> anyhow::Result<(String, bool)> {
     use futures_util::StreamExt;
     use tokio::io::AsyncWriteExt;
 
@@ -287,6 +385,7 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
     struct Asset {
         name: String,
         browser_download_url: String,
+        #[serde(default)]
         size: u64,
     }
     #[derive(serde::Deserialize)]
@@ -295,34 +394,28 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
         assets: Vec<Asset>,
     }
 
+    let title = kind.title();
     let client = reqwest::Client::builder()
-        .user_agent("OnlineFix-Launcher/0.1")
+        .user_agent("OnlineFix-Launcher/0.3")
         .build()?;
     let rel: Release = client
-        .get("https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest")
+        .get(kind.latest_url())
         .send()
         .await?
         .error_for_status()?
         .json()
         .await?;
-    // В релизе два архива: GE-ProtonX-Y-x86_64.tar.gz и GE-ProtonX-Y-aarch64.tar.gz
-    // (в старых релизах — один, без суффикса, он под x86_64).
     let arch = host_arch();
-    let tars: Vec<&Asset> = rel.assets.iter().filter(|a| a.name.ends_with(".tar.gz")).collect();
-    let asset = tars
-        .iter()
-        .find(|a| a.name.contains(arch))
-        .or_else(|| {
-            (arch == "x86_64")
-                .then(|| tars.iter().find(|a| !a.name.contains("aarch64") && !a.name.contains("arm64")))
-                .flatten()
-        })
-        .copied()
+    let v3 = kind == ProtonKind::CachyosV3;
+    if v3 && !cpu_x86_64_v3() {
+        anyhow::bail!("Процессор не поддерживает x86-64-v3 (AVX2/FMA) — скачайте обычный Proton-CachyOS");
+    }
+    let asset = pick_asset(&rel.assets, |a| a.name.as_str(), v3)
         .ok_or_else(|| anyhow::anyhow!("В релизе {} нет сборки под {arch}", rel.tag_name))?;
 
     let dir = compat_tools_dir();
     tokio::fs::create_dir_all(&dir).await?;
-    let stem = asset.name.trim_end_matches(".tar.gz").to_string();
+    let stem = archive_stem(&asset.name).unwrap_or(&asset.name).to_string();
     let have = [rel.tag_name.as_str(), stem.as_str()].iter().any(|name| {
         let p = dir.join(name);
         p.join("proton").is_file() && arch_ok(&p)
@@ -331,43 +424,48 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
         return Ok((rel.tag_name, true));
     }
     let tmp = dir.join(format!("{}.part", asset.name));
-    progress(format!(
+    status(format!(
         "Скачиваю {} ({} МБ)…",
         rel.tag_name,
         asset.size / 1_048_576
     ));
+    progress(0);
 
     let resp = client
         .get(&asset.browser_download_url)
         .send()
         .await?
         .error_for_status()?;
+    let total = resp.content_length().filter(|&n| n > 0).unwrap_or(asset.size);
     let mut file = tokio::fs::File::create(&tmp).await?;
     let mut stream = resp.bytes_stream();
     let (mut done, mut last_pct) = (0u64, 0u64);
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                drop(file);
+                let _ = tokio::fs::remove_file(&tmp).await;
+                return Err(e.into());
+            }
+        };
         done += chunk.len() as u64;
         file.write_all(&chunk).await?;
-        let pct = if asset.size > 0 {
-            done * 100 / asset.size
-        } else {
-            0
-        };
-        if pct >= last_pct + 20 {
+        let pct = if total > 0 { (done * 100 / total).min(100) } else { 0 };
+        if pct > last_pct {
             last_pct = pct;
-            progress(format!("GE-Proton: {pct}%"));
+            progress(pct as u8);
         }
     }
     file.flush().await?;
     drop(file);
 
-    progress("Распаковываю GE-Proton…".into());
-    // Если раньше была поставлена сборка не под тот процессор — убираем её,
-    // иначе файлы смешаются.
+    status(format!("Распаковываю {title}…"));
+    // Если раньше была поставлена сборка с тем же именем (например, не под тот
+    // процессор) — убираем её, иначе файлы смешаются.
     if let Ok(o) = command("sh")
         .arg("-c")
-        .arg("tar -tzf \"$1\" | head -n 1")
+        .arg("tar -tf \"$1\" | head -n 1")
         .arg("sh")
         .arg(&tmp)
         .output()
@@ -378,15 +476,16 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
             let _ = tokio::fs::remove_dir_all(dir.join(&top)).await;
         }
     }
-    let status = command("tar")
-        .arg("-xzf")
+    // GNU tar сам определяет gzip/xz/zstd по содержимому.
+    let status_code = command("tar")
+        .arg("-xf")
         .arg(&tmp)
         .arg("-C")
         .arg(&dir)
         .status()?;
     let _ = tokio::fs::remove_file(&tmp).await;
-    if !status.success() {
-        anyhow::bail!("Не удалось распаковать архив GE-Proton");
+    if !status_code.success() {
+        anyhow::bail!("Не удалось распаковать архив {title} (нужен tar с поддержкой xz)");
     }
     Ok((rel.tag_name, false))
 }
@@ -620,7 +719,7 @@ pub fn parse_env(s: &str) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{natural_cmp, windows_cmdline_args};
+    use super::{host_arch, natural_cmp, pick_asset, windows_cmdline_args};
     use std::cmp::Ordering::*;
 
     #[test]
@@ -633,6 +732,36 @@ mod tests {
             windows_cmdline_args(&a),
             vec!["/SILENT", r#"/DIR="D:\My Games\x\game""#, r"/D=D:\My Games\x", "\"a b\""]
         );
+    }
+
+    #[test]
+    fn proton_assets() {
+        fn nm<'a>(n: &'a &str) -> &'a str {
+            n
+        }
+        let pick = |names: &[&'static str]| pick_asset(names, nm, false).copied();
+        let cachy = [
+            "proton-cachyos-11.0-20261015-slr-arm64.sha512sum",
+            "proton-cachyos-11.0-20261015-slr-arm64.tar.xz",
+            "proton-cachyos-11.0-20261015-slr-x86_64.sha512sum",
+            "proton-cachyos-11.0-20261015-slr-x86_64_v3.tar.xz",
+            "proton-cachyos-11.0-20261015-slr-x86_64.tar.xz",
+        ];
+        let ge = ["GE-Proton11-12-aarch64.tar.gz", "GE-Proton11-12-x86_64.tar.gz", "GE-Proton11-12.sha512sum"];
+        let dw = ["dwproton-11.0-17-x86_64.sha512sum", "dwproton-11.0-17-x86_64.tar.xz"];
+        let em = ["proton-EM-10.0-37-HDR.sha256sum", "proton-EM-10.0-37-HDR.tar.xz"];
+        if host_arch() == "x86_64" {
+            assert_eq!(pick(&cachy), Some("proton-cachyos-11.0-20261015-slr-x86_64.tar.xz"));
+            assert_eq!(
+                pick_asset(&cachy, nm, true).copied(),
+                Some("proton-cachyos-11.0-20261015-slr-x86_64_v3.tar.xz")
+            );
+            assert_eq!(pick_asset(&dw, nm, true).copied(), None);
+            assert_eq!(pick(&ge), Some("GE-Proton11-12-x86_64.tar.gz"));
+            assert_eq!(pick(&dw), Some("dwproton-11.0-17-x86_64.tar.xz"));
+            assert_eq!(pick(&em), Some("proton-EM-10.0-37-HDR.tar.xz"));
+            assert_eq!(pick(&["GE-Proton9-1.tar.gz"]), Some("GE-Proton9-1.tar.gz"));
+        }
     }
 
     #[test]

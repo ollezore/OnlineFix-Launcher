@@ -1609,10 +1609,17 @@ fn launch_game(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<
         return Err("Выбран установщик, а не игра — запускаю установку. После неё выберите exe игры".into());
     }
     let proton_dir = state.resolve_proton(&g)?;
-    let (use_umu, log, steam_overlay) = {
+    let (use_umu, log, steam_overlay, wayland) = {
         let s = state.settings.lock();
-        (s.use_umu, s.proton_log.then(|| g.dir.join("proton.log")), s.steam_overlay)
+        (s.use_umu, s.proton_log.then(|| g.dir.join("proton.log")), s.steam_overlay, s.wayland)
     };
+    // Нативный Wayland-драйвер Wine (GE, CachyOS, EM, DW). Свои переменные игры идут после
+    // и могут это переопределить.
+    let mut extra_env = Vec::new();
+    if wayland {
+        extra_env.push(("PROTON_ENABLE_WAYLAND".to_string(), "1".to_string()));
+    }
+    extra_env.extend(proton::parse_env(&g.env));
     let mut child = proton::spawn(proton::RunSpec {
         proton_dir: &proton_dir,
         compat_dir: &g.compat_dir(),
@@ -1621,7 +1628,7 @@ fn launch_game(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<
         use_umu,
         online_fix: g.spacewar,
         dll_overrides: Some(g.dll_overrides.clone()),
-        extra_env: proton::parse_env(&g.env),
+        extra_env,
         log_file: log,
         steam_overlay,
     })
@@ -1783,6 +1790,8 @@ struct SystemStatus {
     protons: usize,
     /// Есть ли GE-Proton (он работает без контейнера Steam Runtime — надёжнее всего).
     ge_proton: bool,
+    /// Процессор умеет x86-64-v3 (для Proton-CachyOS v3).
+    cpu_v3: bool,
     /// Найденный архиватор: путь к 7z или WinRAR.
     archiver: Option<String>,
     /// Есть ли чем распаковать RAR на Linux (unrar).
@@ -1842,6 +1851,7 @@ async fn system_status() -> SystemStatus {
         umu: proton::umu_available(),
         protons: proton::list_protons().len(),
         ge_proton: proton::list_protons().iter().any(|p| p.name.to_lowercase().contains("ge-proton")),
+        cpu_v3: proton::cpu_x86_64_v3(),
         archiver: sys::seven_zip()
             .or_else(sys::winrar)
             .map(|p| p.to_string_lossy().to_string()),
@@ -1863,14 +1873,34 @@ struct GeResult {
     already: bool,
 }
 
-/// Скачивает свежий GE-Proton (только Linux).
+/// Скачивает свежий GE-Proton (только Linux). Оставлено для мастера первого запуска.
 #[tauri::command]
 async fn install_ge_proton(app: AppHandle) -> CmdResult<GeResult> {
-    let app2 = app.clone();
-    proton::install_ge_proton(move |msg| toast(&app2, msg))
-        .await
-        .map(|(tag, already)| GeResult { tag, already })
-        .map_err(err)
+    install_proton(app, proton::ProtonKind::Ge).await
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct ProtonProgress {
+    kind: proton::ProtonKind,
+    pct: u8,
+}
+
+/// Скачивает свежую сборку Proton выбранного типа (только Linux).
+/// Проценты загрузки идут событием `proton-progress`.
+#[tauri::command]
+async fn install_proton(app: AppHandle, kind: proton::ProtonKind) -> CmdResult<GeResult> {
+    let (a1, a2) = (app.clone(), app.clone());
+    proton::install_proton(
+        kind,
+        move |pct| {
+            let _ = a1.emit("proton-progress", ProtonProgress { kind, pct });
+        },
+        move |msg| toast(&a2, msg),
+    )
+    .await
+    .map(|(tag, already)| GeResult { tag, already })
+    .map_err(err)
 }
 
 #[tauri::command]
@@ -1988,6 +2018,7 @@ pub fn run() {
             start_steam,
             cover,
             install_ge_proton,
+            install_proton,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OnlineFix-Launcher");

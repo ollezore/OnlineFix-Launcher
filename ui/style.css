@@ -398,10 +398,22 @@ dialog.wizard { max-width: 640px; }
 .check.wait { border-color: transparent; background: var(--md-tertiary-container); color: var(--md-on-tertiary-container); }
 .check[data-act] { cursor: pointer; }
 
-/* ── Progress ── */
-.progress { height: 4px; border-radius: 2px; background: var(--md-secondary-container); overflow: hidden; position: relative; }
-.progress > i { position: absolute; inset: 0 auto 0 0; background: var(--md-primary); border-radius: 2px; transition: width 400ms var(--ease-std); }
-.progress.indet > i { width: 40% !important; animation: indet 1.4s infinite var(--ease-std); }
+/* ── Progress: волнистый индикатор, как в Material 3 Expressive (Pixel) ──
+   Заполненная часть — линия, которую ui/wave.js плавно изгибает в волну и обратно;
+   дальше после зазора — ровный трек с точкой-ограничителем на конце.
+   Разметка: <div class="progress [indet|paused]"><i style="width:N%"></i></div>. */
+.progress { height: 10px; display: flex; align-items: center; gap: 4px; position: relative; overflow: hidden; }
+.progress[hidden] { display: none; }
+.proton-src .progress { margin-top: 8px; }
+.progress::after {
+  content: ""; flex: 1 1 0; min-width: 0; height: 4px; border-radius: 2px;
+  background: radial-gradient(circle 2px at calc(100% - 2px) 50%, var(--md-primary) 95%, transparent) no-repeat, var(--md-secondary-container);
+}
+.progress > i { flex: none; height: 10px; min-width: 0; transition: width 400ms var(--ease-std); }
+.progress > i > svg { display: block; overflow: visible; }
+.progress > i path { fill: none; stroke: var(--md-primary); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.progress.indet::after { background: var(--md-secondary-container); }
+.progress.indet > i { position: absolute; left: 0; width: 40% !important; animation: indet 1.8s infinite var(--ease-std); }
 @keyframes indet { from { left: -40%; } to { left: 100%; } }
 .spinner { width: 40px; height: 40px; border: 4px solid var(--md-secondary-container); border-top-color: var(--md-primary); border-radius: 50%; animation: spin .9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }

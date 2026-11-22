@@ -181,6 +181,9 @@ pub struct Settings {
     /// None — префикс лежит в папке игры.
     #[serde(default)]
     pub prefixes_dir: Option<PathBuf>,
+    /// Запускать игры через Wayland-драйвер Wine (PROTON_ENABLE_WAYLAND=1).
+    #[serde(default)]
+    pub wayland: bool,
     /// Версия формата настроек — для однократных миграций.
     #[serde(default)]
     pub rev: u32,
@@ -213,6 +216,7 @@ impl Default for Settings {
             steam_overlay: true,
             proton_log: false,
             prefixes_dir: None,
+            wayland: false,
             rev: SETTINGS_REV,
         }
     }

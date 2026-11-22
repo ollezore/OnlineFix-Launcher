@@ -990,7 +990,7 @@ function renderDownloads() {
       <div class="lead">${icon("download")}</div>
       <div class="grow">
         <div class="title-m">${esc(g.title)}</div>
-        <div class="progress ${init ? "indet" : ""}"><i style="width:${pct}%"></i></div>
+        <div class="progress ${init ? "indet" : paused ? "paused" : ""}"><i style="width:${pct}%"></i></div>
         <div class="body-s muted">${line}${d?.error ? ` · <span style="color:var(--md-error)">${esc(d.error)}</span>` : ""}</div>
       </div>
       <span class="label-l">${init ? "" : pct.toFixed(1) + "%"}</span>
@@ -1023,10 +1023,18 @@ async function renderSettings() {
       ? `<option value="">Автоматически (${esc(protons[0].name)})</option>` + protons.map((p) => `<option ${settings.proton === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")
       : `<option value="">Proton не найден</option>`;
     mdSelect($("#set-proton"));
-    const ges = protons.filter((p) => /ge-proton/i.test(p.name)).map((p) => p.name);
-    $("#ge-desc").textContent = (ges.length ? `${t("Установлено: {0}", [ges.slice(0, 3).join(", ") + (ges.length > 3 ? "…" : "")])}. ` : `${t("Не установлен.")} `)
-      + `${t("Лучше всего подходит для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр.")} `
-      + t("При «Автоматически» берётся самая новая версия GE.");
+    const KIND_RE = { ge: /ge-proton/i, cachyos: /cachyos(?!.*_v3)/i, "cachyos-v3": /cachyos.*_v3/i, dw: /dwproton/i, em: /proton-em/i };
+    $$(".proton-src").forEach((row) => {
+      const names = protons.filter((p) => KIND_RE[row.dataset.kind].test(p.name)).map((p) => p.name);
+      $(".proton-have", row).textContent = names.length
+        ? t("Установлено: {0}", [names.slice(0, 3).join(", ") + (names.length > 3 ? "…" : "")])
+        : t("Не установлен.");
+      if (row.dataset.kind === "cachyos-v3" && !sys.cpuV3) {
+        $(".proton-have", row).textContent = t("Ваш процессор не поддерживает x86-64-v3 — используйте обычный Proton-CachyOS");
+        if (!protonBusy.has("cachyos-v3")) $("button", row).disabled = true;
+      }
+    });
+    $("#set-wayland").checked = !!settings.wayland;
     renderThemeSettings();
     renderLangSelect($("#set-lang"));
 
@@ -1059,6 +1067,8 @@ async function renderSettings() {
     if (b) b.onclick = () => invoke("start_steam").then(() => { snack("Steam запускается…"); setTimeout(renderSettings, 8000); }).catch(fail);
   } catch (e) { fail(e); }
 }
+
+const protonBusy = new Set();
 
 async function saveSettings(patch) {
   const s = { ...state.settings, ...patch };
@@ -1175,18 +1185,37 @@ function bind() {
   $("#set-limit").onchange = (e) => saveSettings({ downloadLimitMbps: Math.max(0, parseInt(e.target.value) || 0) });
   $("#set-umu").onchange = (e) => saveSettings({ useUmu: e.target.checked });
   $("#set-overlay").onchange = (e) => saveSettings({ steamOverlay: e.target.checked });
-  $("#ge-download").onclick = async (e) => {
-    const b = e.currentTarget;
-    b.disabled = true;
-    b.lastChild.textContent = t("Скачиваю…");
-    try {
-      const r = await invoke("install_ge_proton");
-      snack(r.already ? `${r.tag} — у вас уже последняя версия` : `${r.tag} установлен и будет использоваться автоматически`);
-    } catch (err) { fail(err); }
-    b.disabled = false;
-    b.lastChild.textContent = t("Скачать последнюю");
-    renderSettings();
-  };
+  // Сборки Proton: кнопка «Скачать последнюю» + волнистая полоска загрузки.
+  $$(".proton-src").forEach((row) => {
+    const kind = row.dataset.kind, b = $("button", row), bar = $(".progress", row);
+    b.onclick = async () => {
+      if (protonBusy.has(kind)) return;
+      protonBusy.add(kind);
+      b.disabled = true;
+      b.lastChild.textContent = t("Скачиваю…");
+      $("i", bar).style.width = "0%";
+      bar.classList.add("indet");
+      bar.hidden = false;
+      try {
+        const r = await invoke("install_proton", { kind });
+        snack(r.already ? `${r.tag} — у вас уже последняя версия` : `${r.tag} установлен`);
+      } catch (err) { fail(err); }
+      protonBusy.delete(kind);
+      bar.hidden = true;
+      b.disabled = false;
+      b.lastChild.textContent = t("Скачать последнюю");
+      renderSettings();
+    };
+  });
+  listen("proton-progress", (e) => {
+    const row = $(`.proton-src[data-kind="${e.payload.kind}"]`);
+    if (!row) return;
+    const bar = $(".progress", row);
+    bar.hidden = false;
+    bar.classList.remove("indet");
+    $("i", bar).style.width = `${e.payload.pct}%`;
+  });
+  $("#set-wayland").onchange = (e) => saveSettings({ wayland: e.target.checked });
   $("#set-log").onchange = (e) => saveSettings({ protonLog: e.target.checked });
   $("#set-proton").onchange = (e) => saveSettings({ proton: e.target.value || null });
   $$("#set-theme button").forEach((b) => (b.onclick = () => { MD3Theme.setMode(b.dataset.v); renderThemeSettings(); }));
@@ -1247,8 +1276,8 @@ async function mockInvoke(cmd, args) {
     case "running_games": return [];
     case "downloads": return [{ id: "7dtd", state: "live", progressBytes: 6.2e9, totalBytes: 17.6e9, speedBps: 12.4e6, etaSecs: 920 }];
     case "get_settings": return { gamesDir: "~/Games/OnlineFix-Launcher", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: false, prefixesDir: null };
-    case "list_protons": return [{ name: "GE-Proton10-25", path: "" }, { name: "GE-Proton10-9", path: "" }, { name: "Proton - Experimental", path: "" }];
-    case "system_status": return { platform: "linux", steamRoot: "~/.local/share/Steam", steamRunning: false, umu: false, protons: 1, geProton: false, archiver: "/usr/bin/7z", unrar: false, steamFlatpak: false, distro: "ubuntu", distroLike: "debian" };
+    case "list_protons": return [{ name: "GE-Proton10-25", path: "" }, { name: "GE-Proton10-9", path: "" }, { name: "proton-cachyos-11.0-20261015-slr-x86_64", path: "" }, { name: "proton-cachyos-11.0-20261015-slr-x86_64_v3", path: "" }, { name: "Proton - Experimental", path: "" }];
+    case "system_status": return { platform: "linux", steamRoot: "~/.local/share/Steam", steamRunning: false, umu: false, protons: 1, geProton: false, cpuV3: true, archiver: "/usr/bin/7z", unrar: false, steamFlatpak: false, distro: "ubuntu", distroLike: "debian" };
     case "dir_info": return { fs: /mnt/.test(args.path) ? "fuseblk" : "ext4", unsuitable: /mnt/.test(args.path), freeBytes: 412e9 };
     case "cover": return null;
     case "popular": return [2266, 6618, 749, 5458];
