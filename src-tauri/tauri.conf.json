@@ -58,7 +58,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDc1RjBCMTEyRDg3QUI2RDYKUldUV3RucllFckh3ZGRtNTQwUEMyM1BFYXlBRk9tejBISGwybXUzL1Y1Q2toKy9QV2FRWVFhdmYK",
       "endpoints": [
-        "https://github.com/ollezore/LinFix/releases/latest/download/latest.json"
+        "https://github.com/ollezore/OnlineFix-Launcher/releases/latest/download/latest.json"
       ],
       "windows": {
         "installMode": "passive"

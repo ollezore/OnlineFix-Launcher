@@ -23,11 +23,7 @@ const I18N = (() => {
   function detect() {
     const saved = localStorage.getItem("lang");
     if (saved && LANGS[saved]) return saved;
-    for (const l of navigator.languages || [navigator.language || ""]) {
-      const c = (l || "").slice(0, 2).toLowerCase();
-      if (LANGS[c]) return c;
-      if (c === "be" || c === "kk") return "ru";
-    }
+    // По умолчанию — английский; язык меняется в мастере первого запуска и в настройках.
     return "en";
   }
 
@@ -95,11 +91,13 @@ const I18N = (() => {
       if (r != null && r !== node.data) node.data = r;
       return;
     }
-    if (node.nodeType !== 1 || SKIP.has(node.tagName)) return;
+    if (node.nodeType !== 1 || node.tagName === "SCRIPT" || node.tagName === "STYLE") return;
+    // У полей ввода переводим подсказки (placeholder/title), но не значение.
     for (const a of ATTRS) {
       const v = node.getAttribute(a);
       if (v && CYR.test(v)) { const r = translateString(v); if (r != null) node.setAttribute(a, r); }
     }
+    if (SKIP.has(node.tagName)) return;
     for (let c = node.firstChild; c; c = c.nextSibling) walk(c);
   }
 

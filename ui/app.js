@@ -5,7 +5,7 @@ const T = window.__TAURI__;
 const invoke = T ? T.core.invoke : mockInvoke;
 const listen = T ? T.event.listen : () => {};
 // Репозиторий на GitHub (страница релизов и ошибок). Тот же адрес — в tauri.conf.json → plugins.updater.
-const REPO_URL = "https://github.com/ollezore/LinFix";
+const REPO_URL = "https://github.com/ollezore/OnlineFix-Launcher";
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -423,6 +423,7 @@ function renderMore() {
 
 function openCatalogGame(g) {
   let sel = 0;
+  const linux = state.system?.platform !== "windows";
   const html = `
     <div class="hero">${coverHTML(g.title, kindTag(g.latest.installKind), g.latest.articleUrl)}</div>
     <h2 class="headline-s">${esc(g.title)}</h2>
@@ -451,10 +452,21 @@ function openCatalogGame(g) {
         </div>
         <button class="btn outlined" id="dlg-browse">Обзор</button>
       </div>
-      <div class="body-s muted">Внутри будет создана папка игры: раздача, префикс Proton и сама игра.</div>
+      ${linux ? `<div class="body-s muted">Внутри будет создана папка игры: раздача и установленная игра.</div>
+      <div class="title-s">Куда положить префикс Proton</div>
+      <div class="field-row">
+        <div class="field">
+          <input id="dlg-prefix" value="${esc(state.settings?.prefixesDir || "")}" placeholder="В папке игры" spellcheck="false"/>
+        </div>
+        <button class="btn outlined" id="dlg-prefix-browse">Обзор</button>
+      </div>
+      <div class="body-s muted">Префикс — это «диск C:» игры: сохранения и настройки. Пусто — внутри папки игры. Нужен раздел Linux (ext4, btrfs), не NTFS.</div>
+      <label class="body-m" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="dlg-remember"/>Запомнить эти папки</label>`
+      : `<div class="body-s muted">Внутри будет создана папка игры: раздача и установленная игра.</div>`}
     </div>
     <div class="dlg-actions">
       <button class="btn text has-icon" id="dlg-steam">${icon("steam")}Страница в Steam</button>
+      ${g.versions[0]?.articleUrl ? `<button class="btn text has-icon" id="dlg-freetp">${icon("open")}FreeTP</button>` : ""}
       <span style="flex:1"></span>
       <button class="btn text" data-close>Отмена</button>
       <button class="btn filled has-icon" id="dlg-download">${icon("download")}Скачать</button>
@@ -473,16 +485,27 @@ function openCatalogGame(g) {
       } catch (err) { fail(err); }
       b.disabled = false;
     };
+    const ft = $("#dlg-freetp", dlg);
+    if (ft) ft.onclick = () => invoke("open_url", { url: g.versions[sel].articleUrl || g.versions[0].articleUrl }).catch(fail);
     $("#dlg-browse", dlg).onclick = async () => {
       if (!T) return;
       const d = await T.dialog.open({ directory: true, defaultPath: $("#dlg-dir", dlg).value || state.settings?.gamesDir });
       if (d) $("#dlg-dir", dlg).value = d;
     };
+    const pb = $("#dlg-prefix-browse", dlg);
+    if (pb) pb.onclick = async () => {
+      if (!T) return;
+      const d = await T.dialog.open({ directory: true, defaultPath: $("#dlg-prefix", dlg).value || state.settings?.gamesDir });
+      if (d) $("#dlg-prefix", dlg).value = d;
+    };
     $("#dlg-download", dlg).onclick = async () => {
       const entry = g.versions[sel];
       try {
         const dir = $("#dlg-dir", dlg).value.trim() || null;
-        await invoke("add_game", { entry, dir });
+        const prefixDir = linux ? ($("#dlg-prefix", dlg).value.trim() || null) : null;
+        await invoke("add_game", { entry, dir, prefixDir });
+        if (linux && $("#dlg-remember", dlg).checked)
+          await saveSettings({ gamesDir: dir || state.settings.gamesDir, prefixesDir: prefixDir });
         closeDialog();
         snack(`«${g.title}» добавлена — ищу раздачу`, "Загрузки", () => go("downloads"));
         await refreshLibrary();
@@ -526,8 +549,11 @@ function gameChecks(g) {
   let fix;
   if (g.fixDetected || g.addonsApplied) fix = ["ok", g.addonApplied ? `Онлайн-фикс · ${shortFix(g.addonApplied)}` : "Онлайн-фикс"];
   else if (g.installKind === 2) fix = ["ok", "Фикс вшит в раздачу"];
-  else if (g.addons?.length) fix = ["no", "Онлайн-фикс не установлен"];
-  else fix = ["none", "Фикса нет в базе", "info"];
+  else if ((g.addons || []).some(isFix)) fix = ["no", "Онлайн-фикс не установлен"];
+  // Раздачи FreeTP и Online-Fix выкладываются уже готовыми для игры по сети;
+  // отдельного фикса в базе нет, значит, он внутри раздачи.
+  else if (g.status === "installed") fix = ["ok", "Онлайн в раздаче"];
+  else fix = ["none", "Онлайн в раздаче", "info"];
   return [
     done ? ["ok", "Скачана"] : ["wait", "Скачивается"],
     inst ? ["ok", "Установлена"] : g.status === "installing" ? ["wait", "Устанавливается"] : ["none", "Не установлена"],
@@ -589,6 +615,7 @@ function renderLibrary() {
         ${g.status === "downloading" ? `<div class="progress"><i style="width:${pct}%"></i></div>` : ""}
         ${g.lastError ? `<div class="body-s" style="color:var(--md-error)">${esc(g.lastError)}</div>` : ""}
         ${g.playtimeSecs ? `<div class="body-s muted">Наиграно: ${fmtTime(g.playtimeSecs)}</div>` : ""}
+        <a class="body-s freetp-link" href="#" data-act="freetp">${icon("open")}${g.articleUrl ? "Страница игры на FreeTP" : "Найти на FreeTP"}</a>
       </div>
       <div class="actions">${primary}<button class="icon-btn sl" data-act="menu">${icon("more")}</button></div>
     </div>`;
@@ -695,6 +722,7 @@ async function onLibraryAction(id, act, anchor) {
       case "exe": return await pickExe(g);
       case "downloads": return go("downloads");
       case "fix": return await applyFix(g);
+      case "freetp": return await invoke("open_url", { url: freetpUrl(g) });
       case "update": return await updateGame(g);
       case "menu": return showMenu(anchor, gameMenu(g));
     }
@@ -714,9 +742,16 @@ function gameMenu(g) {
   items.push("-",
     { icon: "folder", label: "Папка игры", run: () => invoke("open_dir", { id: g.id, which: g.exe ? "exe" : "root" }).catch(fail) },
     { icon: "folder", label: "Префикс (drive_c)", run: () => invoke("open_dir", { id: g.id, which: "prefix" }).catch(fail) });
-  if (g.articleUrl) items.push({ icon: "open", label: "Страница на FreeTP", run: () => invoke("open_url", { url: g.articleUrl }).catch(fail) });
+  items.push({ icon: "open", label: g.articleUrl ? "Страница на FreeTP" : "Найти на FreeTP", run: () => invoke("open_url", { url: freetpUrl(g) }).catch(fail) });
   items.push("-", { icon: "delete", label: "Удалить", danger: true, run: () => removeGame(g) });
   return items;
+}
+
+// Страница игры на FreeTP; если её нет в базе (раздача Online-Fix) — поиск по названию.
+function freetpUrl(g) {
+  if (g.articleUrl) return g.articleUrl;
+  const name = (g.catalogTitle || g.title || "").replace(/\s+v?\d[\w.]*$/i, "");
+  return `https://freetp.org/index.php?do=search&subaction=search&story=${encodeURIComponent(name)}`;
 }
 
 async function playGame(g) {
@@ -745,7 +780,7 @@ async function installGame(g) {
   snack("Готовлю установку…");
   const kind = await invoke("install_game", { id: g.id });
   if (kind === "installer") {
-    snack("Установщик открыт — пройдите его как обычно. Путь установки можно оставить по умолчанию.");
+    snack("Установка запущена. Если откроется окно установщика — папка уже подставлена, просто жмите «Далее».");
   } else {
     snack("Установщик не найден — игра портативная, выберите exe");
     await pickExe(g);
@@ -972,9 +1007,11 @@ async function renderSettings() {
     const [settings, protons, sys] = await Promise.all([invoke("get_settings"), invoke("list_protons"), invoke("system_status")]);
     state.settings = settings; state.system = sys;
     $("#set-games-dir").value = settings.gamesDir;
+    $("#set-prefixes-dir").value = settings.prefixesDir || "";
     $("#set-limit").value = settings.downloadLimitMbps || 0;
     const win = sys.platform === "windows";
     $("#proton-section").classList.toggle("hidden", win);
+    $("#prefixes-row").classList.toggle("hidden", win);
     $("#set-umu").checked = settings.useUmu && sys.umu;
     $("#set-umu").disabled = !sys.umu;
     $("#umu-desc").textContent = sys.umu
@@ -1100,7 +1137,7 @@ function bind() {
   $("#library-list").onclick = (e) => {
     const b = e.target.closest("[data-act]");
     const item = e.target.closest(".lib-item");
-    if (b && item) { e.stopPropagation(); onLibraryAction(item.dataset.id, b.dataset.act, b); }
+    if (b && item) { e.preventDefault(); e.stopPropagation(); onLibraryAction(item.dataset.id, b.dataset.act, b); }
   };
   $("#banner-start-steam").onclick = () => invoke("start_steam").then(() => {
     snack("Steam запускается…");
@@ -1128,6 +1165,12 @@ function bind() {
     if (!T) return;
     const dir = await T.dialog.open({ directory: true, defaultPath: state.settings?.gamesDir });
     if (dir) { $("#set-games-dir").value = dir; saveSettings({ gamesDir: dir }); }
+  };
+  $("#set-prefixes-dir").onchange = (e) => saveSettings({ prefixesDir: e.target.value.trim() || null });
+  $("#browse-prefixes-dir").onclick = async () => {
+    if (!T) return;
+    const dir = await T.dialog.open({ directory: true, defaultPath: state.settings?.prefixesDir || state.settings?.gamesDir });
+    if (dir) { $("#set-prefixes-dir").value = dir; saveSettings({ prefixesDir: dir }); }
   };
   $("#set-limit").onchange = (e) => saveSettings({ downloadLimitMbps: Math.max(0, parseInt(e.target.value) || 0) });
   $("#set-umu").onchange = (e) => saveSettings({ useUmu: e.target.checked });
@@ -1203,7 +1246,7 @@ async function mockInvoke(cmd, args) {
     case "library": return lib;
     case "running_games": return [];
     case "downloads": return [{ id: "7dtd", state: "live", progressBytes: 6.2e9, totalBytes: 17.6e9, speedBps: 12.4e6, etaSecs: 920 }];
-    case "get_settings": return { gamesDir: "~/Games/OnlineFix-Launcher", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: true };
+    case "get_settings": return { gamesDir: "~/Games/OnlineFix-Launcher", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: false, prefixesDir: null };
     case "list_protons": return [{ name: "GE-Proton10-25", path: "" }, { name: "GE-Proton10-9", path: "" }, { name: "Proton - Experimental", path: "" }];
     case "system_status": return { platform: "linux", steamRoot: "~/.local/share/Steam", steamRunning: false, umu: false, protons: 1, geProton: false, archiver: "/usr/bin/7z", unrar: false, steamFlatpak: false, distro: "ubuntu", distroLike: "debian" };
     case "dir_info": return { fs: /mnt/.test(args.path) ? "fuseblk" : "ext4", unsuitable: /mnt/.test(args.path), freeBytes: 412e9 };

@@ -166,7 +166,7 @@ pub fn list_protons() -> Vec<ProtonInfo> {
         };
         for e in rd.flatten() {
             let p = e.path();
-            if p.join("proton").is_file() {
+            if p.join("proton").is_file() && arch_ok(&p) {
                 let name = e.file_name().to_string_lossy().to_string();
                 found.entry(name).or_insert(p);
             }
@@ -184,6 +184,52 @@ pub fn list_protons() -> Vec<ProtonInfo> {
     // (с учётом чисел: GE-Proton10-25 новее, чем GE-Proton10-9).
     list.sort_by(|a, b| rank(&b.name).cmp(&rank(&a.name)).then(natural_cmp(&b.name, &a.name)));
     list
+}
+
+/// Архитектура процессора, под которую собран Proton (по ELF-заголовку wine).
+/// None — не удалось определить (тогда считаем, что подходит).
+fn proton_arch(dir: &Path) -> Option<&'static str> {
+    use std::io::Read;
+    for rel in [
+        "files/bin/wine64",
+        "files/bin/wine",
+        "files/bin/wineserver",
+        "dist/bin/wine64",
+        "dist/bin/wine",
+        "dist/bin/wineserver",
+    ] {
+        let Ok(mut f) = std::fs::File::open(dir.join(rel)) else {
+            continue;
+        };
+        let mut h = [0u8; 20];
+        if f.read_exact(&mut h).is_err() || h[0] != 0x7F || &h[1..4] != b"ELF" {
+            continue;
+        }
+        // e_machine, little-endian
+        return match u16::from_le_bytes([h[18], h[19]]) {
+            0x3E => Some("x86_64"),
+            0xB7 => Some("aarch64"),
+            0x03 => Some("x86"),
+            _ => None,
+        };
+    }
+    None
+}
+
+/// Архитектура этого компьютера в терминах архивов GE-Proton.
+pub fn host_arch() -> &'static str {
+    match std::env::consts::ARCH {
+        "aarch64" => "aarch64",
+        _ => "x86_64",
+    }
+}
+
+/// Proton собран под этот процессор (32-битный wine на x86_64 тоже годится).
+fn arch_ok(dir: &Path) -> bool {
+    match proton_arch(dir) {
+        None => true,
+        Some(a) => a == host_arch() || (a == "x86" && host_arch() == "x86_64"),
+    }
 }
 
 /// Сравнение строк с числами «по-человечески»: «10-25» > «10-9».
@@ -259,15 +305,29 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
         .error_for_status()?
         .json()
         .await?;
-    let asset = rel
-        .assets
+    // В релизе два архива: GE-ProtonX-Y-x86_64.tar.gz и GE-ProtonX-Y-aarch64.tar.gz
+    // (в старых релизах — один, без суффикса, он под x86_64).
+    let arch = host_arch();
+    let tars: Vec<&Asset> = rel.assets.iter().filter(|a| a.name.ends_with(".tar.gz")).collect();
+    let asset = tars
         .iter()
-        .find(|a| a.name.ends_with(".tar.gz"))
-        .ok_or_else(|| anyhow::anyhow!("В релизе {} нет архива .tar.gz", rel.tag_name))?;
+        .find(|a| a.name.contains(arch))
+        .or_else(|| {
+            (arch == "x86_64")
+                .then(|| tars.iter().find(|a| !a.name.contains("aarch64") && !a.name.contains("arm64")))
+                .flatten()
+        })
+        .copied()
+        .ok_or_else(|| anyhow::anyhow!("В релизе {} нет сборки под {arch}", rel.tag_name))?;
 
     let dir = compat_tools_dir();
     tokio::fs::create_dir_all(&dir).await?;
-    if dir.join(&rel.tag_name).join("proton").is_file() {
+    let stem = asset.name.trim_end_matches(".tar.gz").to_string();
+    let have = [rel.tag_name.as_str(), stem.as_str()].iter().any(|name| {
+        let p = dir.join(name);
+        p.join("proton").is_file() && arch_ok(&p)
+    });
+    if have {
         return Ok((rel.tag_name, true));
     }
     let tmp = dir.join(format!("{}.part", asset.name));
@@ -303,6 +363,21 @@ pub async fn install_ge_proton(progress: impl Fn(String)) -> anyhow::Result<(Str
     drop(file);
 
     progress("Распаковываю GE-Proton…".into());
+    // Если раньше была поставлена сборка не под тот процессор — убираем её,
+    // иначе файлы смешаются.
+    if let Ok(o) = command("sh")
+        .arg("-c")
+        .arg("tar -tzf \"$1\" | head -n 1")
+        .arg("sh")
+        .arg(&tmp)
+        .output()
+    {
+        let top = String::from_utf8_lossy(&o.stdout);
+        let top = top.trim().trim_start_matches("./").split('/').next().unwrap_or("").to_string();
+        if !top.is_empty() && dir.join(&top).is_dir() {
+            let _ = tokio::fs::remove_dir_all(dir.join(&top)).await;
+        }
+    }
     let status = command("tar")
         .arg("-xzf")
         .arg(&tmp)
@@ -352,9 +427,19 @@ pub fn spawn(spec: RunSpec) -> anyhow::Result<Child> {
 fn spawn_windows(spec: RunSpec) -> anyhow::Result<Child> {
     let workdir = spec.exe.parent().unwrap_or(Path::new("."));
     let mut cmd = command(spec.exe);
-    cmd.args(&spec.args)
-        .current_dir(workdir)
-        .stdin(Stdio::null());
+    // Командную строку собираем сами: установщики разбирают её по-своему
+    // (NSIS ждёт `/D=C:\My Games\X` последним и без кавычек).
+    let args = windows_cmdline_args(&spec.args);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        for a in &args {
+            cmd.raw_arg(a);
+        }
+    }
+    #[cfg(not(windows))]
+    cmd.args(&args);
+    cmd.current_dir(workdir).stdin(Stdio::null());
     if spec.online_fix {
         cmd.env("SteamAppId", SPACEWAR_APPID)
             .env("SteamGameId", SPACEWAR_APPID);
@@ -372,8 +457,8 @@ fn spawn_windows(spec: RunSpec) -> anyhow::Result<Child> {
                 q(&spec.exe.to_string_lossy()),
                 q(&workdir.to_string_lossy())
             );
-            if !spec.args.is_empty() {
-                let list: Vec<String> = spec.args.iter().map(|a| q(a)).collect();
+            if !args.is_empty() {
+                let list: Vec<String> = args.iter().map(|a| q(a)).collect();
                 ps.push_str(&format!(" -ArgumentList {}", list.join(",")));
             }
             Ok(command("powershell")
@@ -383,6 +468,32 @@ fn spawn_windows(spec: RunSpec) -> anyhow::Result<Child> {
         }
         Err(e) => Err(e.into()),
     }
+}
+
+/// Окружение для установщиков под Wine: не открывать сайт в браузере
+/// (winebrowser) и не создавать ярлыки/пункты меню (winemenubuilder).
+pub fn installer_env() -> Vec<(String, String)> {
+    if IS_WINDOWS {
+        return vec![];
+    }
+    vec![(
+        "WINEDLLOVERRIDES".into(),
+        "winebrowser.exe=d;winemenubuilder.exe=d".into(),
+    )]
+}
+
+/// Аргументы для командной строки Windows: с пробелами — в кавычках,
+/// кроме уже закавыченных (`/DIR="…"`) и NSIS-овского `/D=…`.
+pub fn windows_cmdline_args(args: &[String]) -> Vec<String> {
+    args.iter()
+        .map(|a| {
+            if a.contains(' ') && !a.contains('"') && !a.starts_with("/D=") {
+                format!("\"{a}\"")
+            } else {
+                a.clone()
+            }
+        })
+        .collect()
 }
 
 fn spawn_proton(spec: RunSpec) -> anyhow::Result<Child> {
@@ -509,8 +620,20 @@ pub fn parse_env(s: &str) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::natural_cmp;
+    use super::{natural_cmp, windows_cmdline_args};
     use std::cmp::Ordering::*;
+
+    #[test]
+    fn installer_args() {
+        let a: Vec<String> = ["/SILENT", r#"/DIR="D:\My Games\x\game""#, r"/D=D:\My Games\x", "a b"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(
+            windows_cmdline_args(&a),
+            vec!["/SILENT", r#"/DIR="D:\My Games\x\game""#, r"/D=D:\My Games\x", "\"a b\""]
+        );
+    }
 
     #[test]
     fn versions() {

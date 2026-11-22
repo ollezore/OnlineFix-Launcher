@@ -81,9 +81,13 @@ pub struct Game {
     /// Идёт обновление: имя прошлой раздачи (для подписи «v1 → v2»).
     #[serde(default)]
     pub update_from: Option<String>,
-    /// Префикс Proton не в папке игры (папка игры на NTFS/exFAT — там префикс не работает).
+    /// Префикс Proton не в папке игры (выбран отдельно или папка игры на NTFS/exFAT).
     #[serde(default)]
     pub prefix_dir: Option<PathBuf>,
+    /// Куда установщик поставил игру (папка, которую мы ему передали, или найденная
+    /// в реестре Windows, если пользователь выбрал свою).
+    #[serde(default)]
+    pub install_dir: Option<PathBuf>,
 }
 
 /// Название для сравнения: только буквы и цифры в нижнем регистре.
@@ -133,6 +137,7 @@ impl Game {
             catalog_title: e.title.clone(),
             update_from: None,
             prefix_dir: None,
+            install_dir: None,
         }
     }
     pub fn download_dir(&self) -> PathBuf {
@@ -143,6 +148,10 @@ impl Game {
     }
     pub fn compat_dir(&self) -> PathBuf {
         self.prefix_dir.clone().unwrap_or_else(|| self.dir.join("prefix"))
+    }
+    /// Папка, в которую лаунчер просит установщик поставить игру.
+    pub fn target_install_dir(&self) -> PathBuf {
+        self.dir.join("game")
     }
     pub fn drive_c(&self) -> PathBuf {
         self.compat_dir().join("pfx/drive_c")
@@ -162,12 +171,33 @@ pub struct Settings {
     /// Ограничение скорости загрузки, МБ/с (0 — без лимита). Применяется при старте.
     #[serde(default)]
     pub download_limit_mbps: u32,
-    /// Писать логи Proton в <игра>/proton.log.
-    #[serde(default = "yes")]
+    /// Писать логи Proton в <игра>/proton.log (по умолчанию выключено).
+    #[serde(default)]
     pub proton_log: bool,
     /// Подключать оверлей Steam (Shift+Tab) к игре, как это делает сам Steam.
     #[serde(default = "yes")]
     pub steam_overlay: bool,
+    /// Общая папка для префиксов Proton (внутри — папка на каждую игру).
+    /// None — префикс лежит в папке игры.
+    #[serde(default)]
+    pub prefixes_dir: Option<PathBuf>,
+    /// Версия формата настроек — для однократных миграций.
+    #[serde(default)]
+    pub rev: u32,
+}
+
+/// Текущая версия формата настроек.
+pub const SETTINGS_REV: u32 = 1;
+
+impl Settings {
+    /// Однократные исправления старых настроек.
+    pub fn migrate(&mut self) {
+        if self.rev < 1 {
+            // Раньше логи Proton писались всегда — теперь по умолчанию выключены.
+            self.proton_log = false;
+        }
+        self.rev = SETTINGS_REV;
+    }
 }
 
 impl Default for Settings {
@@ -181,7 +211,9 @@ impl Default for Settings {
             use_umu: false,
             download_limit_mbps: 0,
             steam_overlay: true,
-            proton_log: true,
+            proton_log: false,
+            prefixes_dir: None,
+            rev: SETTINGS_REV,
         }
     }
 }

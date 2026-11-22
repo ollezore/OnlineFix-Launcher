@@ -87,15 +87,20 @@ fn is_junk(p: &Path) -> bool {
         })
 }
 
-/// Ищет установщик (setup.exe и т.п.) в скачанной раздаче.
+/// Ищет установщик (setup.exe и т.п.) в скачанной раздаче: сначала по имени,
+/// затем — любой exe, который по содержимому оказался Inno Setup / NSIS.
 pub fn find_installer(dir: &Path) -> Option<PathBuf> {
     let mut best: Option<(u8, usize, PathBuf)> = None;
-    for e in WalkDir::new(dir).max_depth(3).into_iter().flatten() {
+    let mut by_signature: Vec<(usize, PathBuf)> = vec![];
+    for e in WalkDir::new(dir).max_depth(5).into_iter().flatten() {
         let p = e.path();
         if !e.file_type().is_file() || !is_exe(p) {
             continue;
         }
         let n = lower_name(p);
+        if n.starts_with("unins") {
+            continue;
+        }
         let score = if n == "setup.exe" {
             3
         } else if n.starts_with("setup") || n.starts_with("install") {
@@ -103,6 +108,9 @@ pub fn find_installer(dir: &Path) -> Option<PathBuf> {
         } else if n.contains("setup") || n.contains("installer") {
             1
         } else {
+            if e.depth() <= 3 && !is_junk(p) {
+                by_signature.push((e.depth(), p.to_path_buf()));
+            }
             continue;
         };
         if is_junk(p) && score < 3 {
@@ -117,7 +125,84 @@ pub fn find_installer(dir: &Path) -> Option<PathBuf> {
             best = Some((score, depth, p.to_path_buf()));
         }
     }
-    best.map(|b| b.2)
+    if best.is_some() {
+        return best.map(|b| b.2);
+    }
+    by_signature.sort();
+    by_signature
+        .into_iter()
+        .take(20)
+        .map(|(_, p)| p)
+        .find(|p| installer_kind(p).is_some())
+}
+
+/// Удаляет из папок рабочего стола ярлыки сайтов, появившиеся после `since`:
+/// интернет-ярлыки .url и ярлыки с «сайт»/FreeTP/Online-Fix в названии.
+pub fn remove_site_shortcuts(desktops: &[PathBuf], since: SystemTime) -> usize {
+    let mut n = 0;
+    for d in desktops {
+        let Ok(rd) = std::fs::read_dir(d) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.is_file() {
+                continue;
+            }
+            let name = lower_name(&p);
+            let ext = p.extension().map(|x| x.to_string_lossy().to_lowercase()).unwrap_or_default();
+            let site_name = ["freetp", "online-fix", "onlinefix", "сайт", "site", "www"]
+                .iter()
+                .any(|k| name.contains(k));
+            let candidate = ext == "url" || (site_name && matches!(ext.as_str(), "lnk" | "desktop"));
+            if !candidate {
+                continue;
+            }
+            let Ok(meta) = e.metadata() else { continue };
+            let newest = [meta.created().ok(), meta.modified().ok()].into_iter().flatten().max();
+            if newest.is_some_and(|t| t >= since) && std::fs::remove_file(&p).is_ok() {
+                n += 1;
+            }
+        }
+    }
+    n
+}
+
+/// Похоже ли на установщик: по имени или по содержимому.
+pub fn looks_like_installer(p: &Path) -> bool {
+    let n = lower_name(p);
+    if n.starts_with("unins") {
+        return false;
+    }
+    n.starts_with("setup") || n.starts_with("install") || n.contains("setup") || installer_kind(p).is_some()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum InstallerKind {
+    /// Inno Setup: /DIR="папка" /SILENT
+    Inno,
+    /// NSIS: /S /D=папка (последним аргументом, без кавычек)
+    Nsis,
+}
+
+/// Тип установщика по содержимому первых мегабайт exe.
+pub fn installer_kind(path: &Path) -> Option<InstallerKind> {
+    use std::io::Read;
+    if !is_exe(path) {
+        return None;
+    }
+    let mut head = Vec::new();
+    std::fs::File::open(path)
+        .ok()?
+        .take(4 * 1024 * 1024)
+        .read_to_end(&mut head)
+        .ok()?;
+    let has = |needle: &[u8]| head.windows(needle.len()).any(|w| w == needle);
+    if has(b"Inno Setup") {
+        Some(InstallerKind::Inno)
+    } else if has(b"Nullsoft") || has(b"NullsoftInst") {
+        Some(InstallerKind::Nsis)
+    } else {
+        None
+    }
 }
 
 /// Архивы в корне раздачи (если игра лежит в .zip/.rar/.7z/.iso).
@@ -411,21 +496,13 @@ pub fn sanitize(s: &str) -> String {
 /// Фикс в виде установщика Inno Setup (так часто раздаёт freetp.org) —
 /// его не распаковать архиватором, нужно запускать.
 pub fn is_inno_installer(path: &Path) -> bool {
-    let is_exe = path
-        .extension()
-        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
-    if !is_exe {
-        return false;
-    }
-    let Ok(data) = std::fs::read(path) else {
-        return false;
-    };
-    let head = &data[..data.len().min(4 * 1024 * 1024)];
-    head.windows(10).any(|w| w == b"Inno Setup")
+    installer_kind(path) == Some(InstallerKind::Inno)
 }
 
-/// Есть ли в папке игры файлы фикса: Online-Fix (OnlineFix64.dll, OnlineFix.ini)
-/// или FreeTP (SteamFix64.dll, SteamFix.ini).
+/// Есть ли в папке игры файлы фикса: Online-Fix (OnlineFix64.dll, OnlineFix.ini),
+/// FreeTP (SteamFix64.dll, SteamFix.ini) или эмулятор Steam, которым FreeTP
+/// делает онлайн во многих раздачах (Goldberg: steam_settings/ или
+/// settings/user_steam_id.txt; SmartSteamEmu; steam_emu.ini).
 pub fn fix_present(dir: &Path) -> bool {
     walkdir::WalkDir::new(dir)
         .max_depth(3)
@@ -433,7 +510,14 @@ pub fn fix_present(dir: &Path) -> bool {
         .flatten()
         .any(|e| {
             let n = e.file_name().to_string_lossy().to_lowercase();
-            (n.starts_with("onlinefix") || n.starts_with("steamfix"))
-                && (n.ends_with(".dll") || n.ends_with(".ini"))
+            if e.file_type().is_dir() {
+                return n == "steam_settings" || n == "smartsteamemu";
+            }
+            ((n.starts_with("onlinefix") || n.starts_with("steamfix"))
+                && (n.ends_with(".dll") || n.ends_with(".ini")))
+                || matches!(
+                    n.as_str(),
+                    "user_steam_id.txt" | "steam_emu.ini" | "smartsteamemu.ini" | "steam_interfaces.txt"
+                )
         })
 }

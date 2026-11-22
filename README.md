@@ -17,7 +17,7 @@
 
 ## Установка
 
-Скачайте файл для своей системы со страницы [**последнего релиза**](https://github.com/ollezore/LinFix/releases/latest).
+Скачайте файл для своей системы со страницы [**последнего релиза**](https://github.com/ollezore/OnlineFix-Launcher/releases/latest).
 
 ### Linux
 
@@ -75,7 +75,7 @@ chmod +x OnlineFix-Launcher_*.AppImage
 
 **Игры на диске Windows (NTFS) в Linux.** Так можно: лаунчер сам положит служебные файлы Proton в домашнюю папку.
 
-Не помогло? Создайте [**issue**](https://github.com/ollezore/LinFix/issues) и приложите файл `proton.log` из папки игры (меню игры → «Папка игры»).
+Не помогло? Создайте [**issue**](https://github.com/ollezore/OnlineFix-Launcher/issues) и приложите файл `proton.log` из папки игры (меню игры → «Папка игры»).
 
 | Библиотека | Мастер настройки |
 |---|---|

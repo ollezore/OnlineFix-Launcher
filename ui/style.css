@@ -383,6 +383,9 @@ dialog.wizard { max-width: 640px; }
 
 /* Шаги игры: скачана / установлена / онлайн-фикс */
 .checks { display: flex; flex-wrap: wrap; gap: 6px; }
+.freetp-link { display: inline-flex; align-items: center; gap: 4px; color: var(--md-primary); text-decoration: none; width: fit-content; margin-top: 2px; }
+.freetp-link:hover { text-decoration: underline; }
+.freetp-link svg { width: 16px; height: 16px; }
 .check {
   position: relative; height: 26px; padding: 0 10px 0 6px; border-radius: var(--shape-sm);
   display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 500;

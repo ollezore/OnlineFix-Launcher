@@ -404,6 +404,7 @@ async fn add_game(
     state: State<'_, AppState>,
     entry: CatalogEntry,
     dir: Option<String>,
+    prefix_dir: Option<String>,
 ) -> CmdResult<Game> {
     // dir — папка, выбранная пользователем в диалоге; внутри неё создаётся папка игры.
     let games_dir = match dir.map(|d| d.trim().to_string()).filter(|d| !d.is_empty()) {
@@ -418,9 +419,25 @@ async fn add_game(
         None => state.settings.lock().games_dir.clone(),
     };
     let mut game = Game::from_entry(&entry, &games_dir);
-    // Папка игр на разделе Windows (NTFS/exFAT/FAT): игра может лежать там,
-    // а префикс Proton — нет. Переносим префикс в домашнюю папку.
-    if let Some(fs) = sys::fs_type(&games_dir).filter(|f| sys::fs_unsuitable_for_prefix(f)) {
+    // Папка для префиксов, выбранная отдельно (только Linux). Внутри — папка игры.
+    let prefixes = prefix_dir
+        .map(|d| d.trim().to_string())
+        .filter(|d| !d.is_empty() && !sys::IS_WINDOWS)
+        .map(|d| expand_home(PathBuf::from(d)));
+    if let Some(p) = prefixes {
+        if !p.is_absolute() {
+            return Err("Укажите полный путь к папке префиксов".into());
+        }
+        if let Some(fs) = sys::fs_type(&p).filter(|f| sys::fs_unsuitable_for_prefix(f)) {
+            return Err(format!(
+                "Папка префиксов на {fs}: там Proton не работает (нужны симлинки). Выберите папку на разделе Linux (ext4, btrfs…)"
+            ));
+        }
+        std::fs::create_dir_all(&p).map_err(|e| format!("Не удалось создать папку префиксов: {e}"))?;
+        game.prefix_dir = Some(p.join(&game.id));
+    } else if let Some(fs) = sys::fs_type(&games_dir).filter(|f| sys::fs_unsuitable_for_prefix(f)) {
+        // Папка игр на разделе Windows (NTFS/exFAT/FAT): игра может лежать там,
+        // а префикс Proton — нет. Переносим префикс в домашнюю папку.
         game.prefix_dir = Some(state.data_dir.join("prefixes").join(&game.id));
         toast(
             &app,
@@ -809,8 +826,11 @@ async fn remove_game(
     if delete_files && ours && game.dir.exists() {
         tokio::fs::remove_dir_all(&game.dir).await.map_err(err)?;
     }
-    // Префикс, вынесенный в домашнюю папку (см. add_game).
-    if let Some(p) = game.prefix_dir.as_ref().filter(|p| p.starts_with(state.data_dir.join("prefixes"))) {
+    // Префикс, вынесенный из папки игры (см. add_game): удаляем только папку этой игры.
+    if let Some(p) = game.prefix_dir.as_ref().filter(|p| {
+        p.starts_with(state.data_dir.join("prefixes"))
+            || p.file_name().is_some_and(|n| n.to_string_lossy() == game.id)
+    }) {
         if delete_files && p.exists() {
             let _ = tokio::fs::remove_dir_all(p).await;
         }
@@ -821,10 +841,21 @@ async fn remove_game(
 
 // ───────────────────────── Установка ─────────────────────────
 
-/// Распаковывает архивы (если есть) и запускает установщик через Proton
-/// в префиксе игры. Если установщика нет — игра портативная.
+/// Распаковывает архивы (если есть) и запускает установщик (на Linux — через Proton
+/// в префиксе игры). Если установщика нет — игра портативная.
+/// `installer` — установщик, который пользователь указал сам.
 #[tauri::command]
-async fn install_game(app: AppHandle, state: State<'_, AppState>, id: String) -> CmdResult<String> {
+async fn install_game(
+    app: AppHandle,
+    id: String,
+    installer: Option<String>,
+) -> CmdResult<String> {
+    install_game_impl(&app, &id, installer.map(PathBuf::from)).await
+}
+
+async fn install_game_impl(app: &AppHandle, id: &str, chosen: Option<PathBuf>) -> CmdResult<String> {
+    let state = app.state::<AppState>();
+    let id = id.to_string();
     let game = state.game(&id)?;
     if state.running.lock().contains_key(&id) {
         return Err("Установщик уже запущен".into());
@@ -834,40 +865,50 @@ async fn install_game(app: AppHandle, state: State<'_, AppState>, id: String) ->
         g.install_started = Some(library::now());
         g.last_error = None;
     });
-    notify(&app);
+    notify(app);
 
-    let dl = game.download_dir();
-    let ex = game.extracted_dir();
-    let mut installer = files::find_installer(&dl);
+    let mut installer = chosen.filter(|p| p.is_file());
     if installer.is_none() {
-        let archives = files::find_archives(&dl);
-        // Распаковываем и при повторной установке (например, после обновления) — 7z -y перезапишет.
-        if !archives.is_empty() {
-            toast(&app, "Распаковка архивов…");
-            let ex2 = ex.clone();
-            let res = tokio::task::spawn_blocking(move || {
-                for a in archives {
-                    files::extract(&a, &ex2)?;
+        let dl = game.download_dir();
+        let ex = game.extracted_dir();
+        installer = tokio::task::spawn_blocking({
+            let dl = dl.clone();
+            move || files::find_installer(&dl)
+        })
+        .await
+        .map_err(err)?;
+        if installer.is_none() {
+            let archives = files::find_archives(&dl);
+            // Распаковываем и при повторной установке (например, после обновления) — 7z -y перезапишет.
+            if !archives.is_empty() {
+                toast(app, "Распаковка архивов…");
+                let ex2 = ex.clone();
+                let res = tokio::task::spawn_blocking(move || {
+                    for a in archives {
+                        files::extract(&a, &ex2)?;
+                    }
+                    anyhow::Ok(())
+                })
+                .await
+                .map_err(err)?;
+                if let Err(e) = res {
+                    state.update(&id, |g| {
+                        g.status = Status::Downloaded;
+                        g.last_error = Some(e.to_string());
+                    });
+                    notify(app);
+                    return Err(e.to_string());
                 }
-                anyhow::Ok(())
-            })
-            .await
-            .map_err(err)?;
-            if let Err(e) = res {
-                state.update(&id, |g| {
-                    g.status = Status::Downloaded;
-                    g.last_error = Some(e.to_string());
-                });
-                notify(&app);
-                return Err(e.to_string());
             }
+            installer = tokio::task::spawn_blocking(move || files::find_installer(&ex))
+                .await
+                .map_err(err)?;
         }
-        installer = files::find_installer(&ex);
     }
 
     let Some(installer) = installer else {
         state.update(&id, |g| g.status = Status::NeedsExe);
-        notify(&app);
+        notify(app);
         return Ok("portable".into());
     };
 
@@ -875,7 +916,7 @@ async fn install_game(app: AppHandle, state: State<'_, AppState>, id: String) ->
         Ok(p) => p,
         Err(e) => {
             state.update(&id, |g| g.status = Status::Downloaded);
-            notify(&app);
+            notify(app);
             return Err(e);
         }
     };
@@ -885,28 +926,144 @@ async fn install_game(app: AppHandle, state: State<'_, AppState>, id: String) ->
         .proton_log
         .then(|| game.dir.join("installer.log"));
     let use_umu = state.settings.lock().use_umu;
-    let mut child = proton::spawn(proton::RunSpec {
+
+    // Ставим игру сами в <папка игры>/game: тихо, если установщик это умеет
+    // (Inno Setup, NSIS), иначе — обычным мастером, а куда он поставил игру,
+    // узнаём по реестру (Windows) или по папке (Linux).
+    let target = game.target_install_dir();
+    let _ = std::fs::create_dir_all(&target);
+    let kind = files::installer_kind(&installer);
+    let win_target = windows_path(&game, &target);
+    let attempts: Vec<(bool, Vec<String>)> = match kind {
+        Some(files::InstallerKind::Inno) => {
+            let dir = if sys::IS_WINDOWS {
+                format!("/DIR=\"{win_target}\"")
+            } else {
+                format!("/DIR={win_target}")
+            };
+            // /TASKS= с пустым списком снимает все галочки доп. задач:
+            // ярлык на рабочем столе, ярлык сайта и т.п.
+            let tasks = if sys::IS_WINDOWS { "/TASKS=\"\"" } else { "/TASKS=" }.to_string();
+            vec![
+                (
+                    true,
+                    ["/SILENT", "/SP-", "/SUPPRESSMSGBOXES", "/NORESTART", "/NOICONS"]
+                        .into_iter()
+                        .map(String::from)
+                        .chain([tasks.clone(), dir.clone()])
+                        .collect(),
+                ),
+                (false, vec!["/SP-".into(), "/NORESTART".into(), "/NOICONS".into(), tasks, dir]),
+            ]
+        }
+        Some(files::InstallerKind::Nsis) => vec![
+            (true, vec!["/S".into(), format!("/D={win_target}")]),
+            (false, vec![format!("/D={win_target}")]),
+        ],
+        None => vec![(false, vec![])],
+    };
+    if attempts[0].0 {
+        toast(app, format!("Устанавливаю автоматически в {}", target.display()));
+    }
+    let before = if sys::IS_WINDOWS {
+        tokio::task::spawn_blocking(sys::uninstall_locations)
+            .await
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+
+    let compat = game.compat_dir();
+    let mut first = match proton::spawn(proton::RunSpec {
         proton_dir: &proton_dir,
-        compat_dir: &game.compat_dir(),
+        compat_dir: &compat,
         exe: &installer,
-        args: vec![],
+        args: attempts[0].1.clone(),
         use_umu,
         online_fix: false,
         dll_overrides: None,
-        extra_env: vec![],
-        log_file: log,
+        extra_env: proton::installer_env(),
+        log_file: log.clone(),
         steam_overlay: false,
-    })
-    .map_err(err)?;
-    state.running.lock().insert(id.clone(), child.id());
-    notify(&app);
+    }) {
+        Ok(c) => c,
+        Err(e) => {
+            state.update(&id, |g| g.status = Status::Downloaded);
+            notify(app);
+            return Err(e.to_string());
+        }
+    };
+    state.running.lock().insert(id.clone(), first.id());
+    notify(app);
 
     let app2 = app.clone();
+    let silent = attempts[0].0;
+    let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
     std::thread::spawn(move || {
-        let _ = child.wait();
         let state = app2.state::<AppState>();
+        let has_exes = |dir: &Path| !files::find_game_exes(&[dir.to_path_buf()], 7, None).is_empty();
+        let mut status = first.wait().ok();
+        for (i, (_, args)) in attempts.iter().enumerate().skip(1) {
+            if has_exes(&target) {
+                break;
+            }
+            // Inno: 2 — отменили до начала, 5 — во время установки. Не навязываемся.
+            let code = status.and_then(|s| s.code());
+            if matches!(code, Some(2) | Some(5)) && kind == Some(files::InstallerKind::Inno) {
+                break;
+            }
+            if i == 1 {
+                toast(&app2, "Автоматическая установка не удалась — открываю обычный установщик (папка уже подставлена)");
+            }
+            match proton::spawn(proton::RunSpec {
+                proton_dir: &proton_dir,
+                compat_dir: &compat,
+                exe: &installer,
+                args: args.clone(),
+                use_umu,
+                online_fix: false,
+                dll_overrides: None,
+                extra_env: proton::installer_env(),
+                log_file: log.clone(),
+                steam_overlay: false,
+            }) {
+                Ok(mut c) => {
+                    state.running.lock().insert(id.clone(), c.id());
+                    status = c.wait().ok();
+                }
+                Err(e) => {
+                    toast(&app2, format!("Не удалось запустить установщик: {e}"));
+                    break;
+                }
+            }
+        }
+        // Куда встала игра: наша папка → новая запись в реестре (пользователь выбрал свою).
+        let mut found = has_exes(&target).then(|| target.clone());
+        if found.is_none() && sys::IS_WINDOWS {
+            let after = sys::uninstall_locations();
+            found = after
+                .iter()
+                .filter(|(k, v)| before.get(*k) != Some(*v))
+                .map(|(_, v)| v.clone())
+                .find(|v| v.is_dir());
+        }
+        if found.is_none() {
+            let _ = std::fs::remove_dir(&target); // пустую папку убираем
+        }
+        let removed = remove_site_shortcuts(&state, &id, started);
+        if removed > 0 {
+            toast(&app2, "Убрал ярлык сайта, который создал установщик");
+        }
         state.running.lock().remove(&id);
-        state.update(&id, |g| g.status = Status::NeedsExe);
+        state.update(&id, |g| {
+            g.status = Status::NeedsExe;
+            if found.is_some() {
+                g.install_dir = found.clone();
+            }
+        });
+        if silent && found.as_deref() == Some(target.as_path()) {
+            toast(&app2, "Игра установлена — выберите exe");
+        }
         notify(&app2);
         let _ = app2.emit("installer-exited", id);
     });
@@ -923,6 +1080,14 @@ async fn find_executables(state: State<'_, AppState>, id: String) -> CmdResult<V
 
 fn find_executables_blocking(g: &Game) -> Vec<String> {
     let mut out = vec![];
+    // Папка, куда установщик поставил игру (наша или найденная в реестре).
+    let mut known = vec![g.target_install_dir()];
+    if let Some(d) = &g.install_dir {
+        if !known.contains(d) {
+            known.insert(0, d.clone());
+        }
+    }
+    out.extend(files::find_game_exes(&known, 7, None));
     if sys::IS_WINDOWS {
         // Установщик ставит игру куда выбрал пользователь — ищем exe,
         // появившиеся после запуска установщика, в типичных папках всех дисков.
@@ -939,7 +1104,11 @@ fn find_executables_blocking(g: &Game) -> Vec<String> {
                     roots.push(drive.join(sub));
                 }
             }
-            out.extend(files::find_game_exes(&roots, 5, Some(since)));
+            for p in files::find_game_exes(&roots, 5, Some(since)) {
+                if !out.contains(&p) {
+                    out.push(p);
+                }
+            }
         }
     } else {
         // Установщики обычно ставят в Games / Program Files внутри префикса.
@@ -952,7 +1121,11 @@ fn find_executables_blocking(g: &Game) -> Vec<String> {
                 }
             }
         }
-        out.extend(files::find_game_exes(&roots, 7, None));
+        for p in files::find_game_exes(&roots, 7, None) {
+            if !out.contains(&p) {
+                out.push(p);
+            }
+        }
     }
     // Портативные игры — прямо в раздаче.
     for p in files::find_game_exes(&[g.extracted_dir(), g.download_dir()], 7, None) {
@@ -973,6 +1146,12 @@ async fn set_executable(
     let p = PathBuf::from(&path);
     if !p.is_file() {
         return Err("Файл не найден".into());
+    }
+    // Выбрали установщик из раздачи — это не игра, его надо запустить как установку.
+    let g0 = state.game(&id)?;
+    if is_release_installer(&g0, &p) {
+        install_game_impl(&app, &id, Some(p)).await?;
+        return Ok("Это установщик — запускаю установку игры".into());
     }
     state.update(&id, |g| {
         g.exe = Some(p);
@@ -1008,6 +1187,12 @@ async fn set_executable(
         };
     }
     Ok("Готово к запуску".into())
+}
+
+/// Файл — установщик из скачанной раздачи (а не exe игры).
+fn is_release_installer(g: &Game, p: &Path) -> bool {
+    (p.starts_with(g.download_dir()) || p.starts_with(g.extracted_dir()))
+        && files::looks_like_installer(p)
 }
 
 /// Скачивает выбранный фикс (`index` в списке addons из базы; по умолчанию — первый
@@ -1089,6 +1274,23 @@ async fn apply_addons(
     Ok(total)
 }
 
+/// Убирает ярлыки сайтов, которые установщик положил на рабочий стол
+/// (FreeTP.Org.url и т.п.). Ярлык самой игры (.lnk) не трогаем.
+fn remove_site_shortcuts(state: &AppState, id: &str, since: std::time::SystemTime) -> usize {
+    let mut dirs_list: Vec<PathBuf> = dirs::desktop_dir().into_iter().collect();
+    if let Some(p) = std::env::var_os("PUBLIC") {
+        dirs_list.push(PathBuf::from(p).join("Desktop"));
+    }
+    if let Ok(g) = state.game(id) {
+        if let Ok(rd) = std::fs::read_dir(g.drive_c().join("users")) {
+            for e in rd.flatten() {
+                dirs_list.push(e.path().join("Desktop"));
+            }
+        }
+    }
+    files::remove_site_shortcuts(&dirs_list, since)
+}
+
 /// Путь в том виде, в каком его видит Windows-программа (под Wine — C:\ или Z:\).
 fn windows_path(g: &Game, p: &Path) -> String {
     if sys::IS_WINDOWS {
@@ -1137,15 +1339,17 @@ async fn run_fix_installer(
             use_umu,
             online_fix: false,
             dll_overrides: None,
-            extra_env: vec![],
+            extra_env: proton::installer_env(),
             log_file: None,
             steam_overlay: false,
         })
         .map_err(err)?;
+        let started = std::time::SystemTime::now() - std::time::Duration::from_secs(5);
         let status = tokio::task::spawn_blocking(move || child.wait())
             .await
             .map_err(err)?
             .map_err(err)?;
+        remove_site_shortcuts(state, &g.id, started);
         if status.success() || files::fix_present(target) {
             return Ok(true);
         }
@@ -1384,6 +1588,26 @@ fn launch_game(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<
         return Err("Игра уже запущена".into());
     }
     let exe = g.exe.clone().ok_or("Не выбран exe игры")?;
+    if !exe.is_file() {
+        state.update(&id, |g| g.status = Status::NeedsExe);
+        notify(&app);
+        return Err(format!("Файл игры не найден: {}. Выберите exe заново", exe.display()));
+    }
+    // Раньше вместо игры можно было выбрать setup.exe — тогда запускаем установку.
+    if is_release_installer(&g, &exe) {
+        state.update(&id, |g| {
+            g.exe = None;
+            g.status = Status::Downloaded;
+        });
+        let app2 = app.clone();
+        let id2 = id.clone();
+        tauri::async_runtime::spawn(async move {
+            if let Err(e) = install_game_impl(&app2, &id2, Some(exe)).await {
+                toast(&app2, e);
+            }
+        });
+        return Err("Выбран установщик, а не игра — запускаю установку. После неё выберите exe игры".into());
+    }
     let proton_dir = state.resolve_proton(&g)?;
     let (use_umu, log, steam_overlay) = {
         let s = state.settings.lock();
@@ -1408,16 +1632,36 @@ fn launch_game(app: AppHandle, state: State<AppState>, id: String) -> CmdResult<
     notify(&app);
 
     let app2 = app.clone();
+    let log_on = log_enabled(&state);
     std::thread::spawn(move || {
-        let _ = child.wait();
+        let status = child.wait();
         let state = app2.state::<AppState>();
         state.running.lock().remove(&id);
         let played = library::now().saturating_sub(started);
+        // Игра закрылась почти сразу с ошибкой — скорее всего, не запустилась.
+        if played < 8 {
+            if let Ok(st) = &status {
+                if !st.success() {
+                    let hint = if sys::IS_WINDOWS {
+                        "Проверьте, что выбран правильный exe".to_string()
+                    } else if log_on {
+                        "Подробности — в proton.log в папке игры".to_string()
+                    } else {
+                        "Включите «Логи Proton» в настройках и запустите снова — появится proton.log".to_string()
+                    };
+                    toast(&app2, format!("Игра закрылась сразу (код {}). {hint}", st.code().unwrap_or(-1)));
+                }
+            }
+        }
         state.update(&id, |g| g.playtime_secs += played);
         notify(&app2);
         let _ = app2.emit("game-exited", id);
     });
     Ok(())
+}
+
+fn log_enabled(state: &AppState) -> bool {
+    state.settings.lock().proton_log
 }
 
 #[tauri::command]
@@ -1500,14 +1744,27 @@ fn get_settings(state: State<AppState>) -> Settings {
 
 #[tauri::command]
 fn save_settings(state: State<AppState>, mut settings: Settings) -> CmdResult<()> {
-    if let Ok(rest) = settings.games_dir.strip_prefix("~") {
-        if let Some(home) = dirs::home_dir() {
-            settings.games_dir = home.join(rest);
+    settings.games_dir = expand_home(settings.games_dir);
+    settings.prefixes_dir = settings
+        .prefixes_dir
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(expand_home);
+    if let Some(p) = &settings.prefixes_dir {
+        if let Some(fs) = sys::fs_type(p).filter(|f| sys::fs_unsuitable_for_prefix(f)) {
+            return Err(format!("Папка префиксов на {fs}: там Proton не работает. Выберите раздел Linux (ext4, btrfs…)"));
         }
     }
     library::save_json(&state.settings_file(), &settings).map_err(err)?;
     *state.settings.lock() = settings;
     Ok(())
+}
+
+/// `~/x` → `/home/user/x`.
+fn expand_home(p: PathBuf) -> PathBuf {
+    match (p.strip_prefix("~"), dirs::home_dir()) {
+        (Ok(rest), Some(home)) => home.join(rest),
+        _ => p,
+    }
 }
 
 #[tauri::command]
@@ -1638,6 +1895,10 @@ pub fn run() {
             // она осталась только запасным источником.
             if settings.source == "hydra" {
                 settings.source = "arachnel".into();
+            }
+            if settings.rev < library::SETTINGS_REV {
+                settings.migrate();
+                let _ = library::save_json(&data_dir.join("settings.json"), &settings);
             }
             let mut games: Vec<Game> = library::load_json(&data_dir.join("library.json"));
             // Прерванные установки откатываем в «скачано».

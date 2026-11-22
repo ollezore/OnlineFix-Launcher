@@ -96,3 +96,53 @@ pub fn winrar() -> Option<PathBuf> {
             .find(|p| p.is_file())
     })
 }
+
+/// Установленные программы из реестра Windows: ключ удаления → папка установки.
+/// Снимок до и после установщика показывает, куда пользователь поставил игру.
+pub fn uninstall_locations() -> std::collections::HashMap<String, PathBuf> {
+    let mut out = std::collections::HashMap::new();
+    if !IS_WINDOWS {
+        return out;
+    }
+    // PowerShell, а не reg.exe: reg выводит в OEM-кодировке и портит кириллицу.
+    let script = r#"[Console]::OutputEncoding = [Text.Encoding]::UTF8
+$roots = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+         'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+         'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+foreach ($r in $roots) {
+  Get-ItemProperty $r -ErrorAction SilentlyContinue | ForEach-Object {
+    $loc = $_.'Inno Setup: App Path'
+    if (-not $loc) { $loc = $_.InstallLocation }
+    if ($loc) { $_.PSPath + [char]9 + $loc }
+  }
+}"#;
+    let Ok(o) = command("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .output()
+    else {
+        return out;
+    };
+    for line in String::from_utf8_lossy(&o.stdout).lines() {
+        if let Some((key, loc)) = line.split_once('\t') {
+            let loc = loc.trim().trim_matches('"');
+            if !loc.is_empty() {
+                out.insert(key.trim().to_string(), PathBuf::from(loc));
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[ignore]
+    fn uninstall_snapshot() {
+        let m = super::uninstall_locations();
+        for (k, v) in m.iter().take(5) {
+            println!("{k} -> {}", v.display());
+        }
+        println!("total {}", m.len());
+        assert!(!super::IS_WINDOWS || !m.is_empty());
+    }
+}

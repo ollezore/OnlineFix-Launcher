@@ -110,6 +110,18 @@
                   </div>
                 </div>
               </div>
+              <div class="row" id="prefixes-row">
+                <div class="grow">
+                  <div class="field-row">
+                    <div class="field">
+                      <label>Папка для префиксов Proton</label>
+                      <input id="set-prefixes-dir" placeholder="В папке каждой игры" />
+                    </div>
+                    <button class="btn outlined" id="browse-prefixes-dir">Обзор</button>
+                  </div>
+                  <div class="body-s muted" style="margin-top:4px">Пусто — префикс лежит в папке игры. Нужен раздел Linux (ext4, btrfs), не NTFS</div>
+                </div>
+              </div>
               <div class="row">
                 <div class="grow"><div class="body-l">Ограничение скорости</div><div class="body-m muted">МБ/с, 0 — без лимита. Применится после перезапуска</div></div>
                 <div class="field" style="width:120px"><input id="set-limit" type="number" min="0" /></div>
@@ -141,7 +153,7 @@
                 <label class="switch"><input type="checkbox" id="set-umu" /><span></span></label>
               </div>
               <div class="row">
-                <div class="grow"><div class="body-l">Логи Proton</div><div class="body-m muted">proton.log / installer.log в папке игры</div></div>
+                <div class="grow"><div class="body-l">Логи Proton</div><div class="body-m muted">proton.log / installer.log в папке игры. Включайте, если игра не запускается — по умолчанию выключено</div></div>
                 <label class="switch"><input type="checkbox" id="set-log" /><span></span></label>
               </div>
             </div>
