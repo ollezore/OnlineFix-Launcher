@@ -1,0 +1,39 @@
+# Flatpak из готового .deb (его собирает CI). Сборка:
+#   flatpak-builder --user --install-deps-from=flathub --force-clean --repo=repo build packaging/flatpak/org.linfix.launcher.yml
+#   flatpak build-bundle repo OnlineFix-Launcher.flatpak org.linfix.launcher
+app-id: org.linfix.launcher
+runtime: org.gnome.Platform
+runtime-version: '47'
+sdk: org.gnome.Sdk
+command: onlinefix-launcher
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=all
+  # Игры, Steam и Proton лежат в домашней папке и на других дисках.
+  - --filesystem=home
+  - --filesystem=/mnt
+  - --filesystem=/media
+  - --filesystem=/run/media
+  # Запуск Proton/игр вне песочницы (flatpak-spawn --host).
+  - --talk-name=org.freedesktop.Flatpak
+modules:
+  - name: onlinefix-launcher
+    buildsystem: simple
+    build-commands:
+      - ar x onlinefix-launcher.deb
+      - tar xf data.tar.gz
+      - install -Dm755 usr/bin/onlinefix-launcher /app/bin/onlinefix-launcher
+      - install -Dm644 icon.png /app/share/icons/hicolor/128x128/apps/org.linfix.launcher.png
+      - install -Dm644 org.linfix.launcher.desktop /app/share/applications/org.linfix.launcher.desktop
+    sources:
+      - type: file
+        path: onlinefix-launcher.deb
+      - type: file
+        path: ../../src-tauri/icons/128x128.png
+        dest-filename: icon.png
+      - type: file
+        path: org.linfix.launcher.desktop

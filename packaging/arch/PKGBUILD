@@ -1,0 +1,36 @@
+# Maintainer: OnlineFix-Launcher
+# Сборка из локального дерева исходников (репозиторий): cd packaging/arch && makepkg -f
+pkgname=onlinefix-launcher
+pkgver=0.3.4
+pkgrel=1
+pkgdesc='Лаунчер FreeTP / Online-Fix для Linux: Proton, префиксы, Spacewar 480'
+arch=('x86_64')
+url='https://github.com/ollezore/OnlineFix-Launcher'
+license=('GPL-3.0-or-later')
+depends=('webkit2gtk-4.1' 'gtk3' 'libayatana-appindicator' 'xdotool' 'p7zip')
+makedepends=('rust' 'cargo' 'nodejs' 'npm' 'cmake' 'clang' 'patchelf')
+options=('!lto')
+_root="${PKG_SRC_ROOT:-$startdir/../..}"
+
+build() {
+  cd "$_root"
+  npm ci
+  export CARGO_TARGET_DIR="$srcdir/target"
+  npx tauri build --no-bundle
+}
+
+package() {
+  install -Dm755 "$srcdir/target/release/onlinefix-launcher" "$pkgdir/usr/bin/onlinefix-launcher"
+  install -Dm644 "$_root/src-tauri/icons/128x128.png" "$pkgdir/usr/share/icons/hicolor/128x128/apps/onlinefix-launcher.png"
+  install -Dm644 "$_root/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 /dev/stdin "$pkgdir/usr/share/applications/onlinefix-launcher.desktop" <<DESK
+[Desktop Entry]
+Type=Application
+Name=OnlineFix-Launcher
+Comment=FreeTP / Online-Fix launcher
+Exec=onlinefix-launcher
+Icon=onlinefix-launcher
+Categories=Game;
+Terminal=false
+DESK
+}

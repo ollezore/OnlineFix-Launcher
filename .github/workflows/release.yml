@@ -59,3 +59,54 @@ jobs:
           releaseDraft: true
           prerelease: false
           includeUpdaterJson: true
+
+  # Пакет для Arch/CachyOS/Manjaro (.pkg.tar.zst): собирается в контейнере Arch.
+  arch:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    steps:
+      - name: Зависимости
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git rust nodejs npm cmake clang patchelf             webkit2gtk-4.1 gtk3 libayatana-appindicator xdotool p7zip librsvg openssl
+      - uses: actions/checkout@v4
+      - name: makepkg
+        run: |
+          useradd -m builder
+          cp -r "$GITHUB_WORKSPACE" /home/builder/src
+          chown -R builder /home/builder/src
+          su builder -c "cd /home/builder/src/packaging/arch && makepkg -f --noconfirm --nodeps"
+          mkdir -p /out && cp /home/builder/src/packaging/arch/*.pkg.tar.zst /out/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pacman
+          path: /out/*.pkg.tar.zst
+
+  # Flatpak из .deb, который собирает основная задача.
+  flatpak:
+    needs: build
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+      - name: Сборка .deb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev             patchelf libxdo-dev libssl-dev cmake clang flatpak flatpak-builder
+          npm ci
+          npx tauri build --bundles deb
+          cp src-tauri/target/release/bundle/deb/*.deb packaging/flatpak/onlinefix-launcher.deb
+      - name: flatpak-builder
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub --force-clean --repo=repo build packaging/flatpak/org.linfix.launcher.yml
+          flatpak build-bundle repo OnlineFix-Launcher.flatpak org.linfix.launcher
+      - uses: actions/upload-artifact@v4
+        with:
+          name: flatpak
+          path: OnlineFix-Launcher.flatpak

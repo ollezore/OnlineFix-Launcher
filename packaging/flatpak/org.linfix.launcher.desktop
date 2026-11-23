@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=OnlineFix-Launcher
+Comment=FreeTP / Online-Fix launcher
+Exec=onlinefix-launcher
+Icon=org.linfix.launcher
+Categories=Game;
+Terminal=false
