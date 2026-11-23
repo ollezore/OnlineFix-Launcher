@@ -17,7 +17,40 @@ pub fn command(program: impl AsRef<OsStr>) -> Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         c.creation_flags(CREATE_NO_WINDOW);
     }
+    #[cfg(not(target_os = "windows"))]
+    clean_appimage_env(&mut c);
     c
+}
+
+/// Из AppImage дочерним процессам (скрипт `proton` на системном python3, Wine, игры)
+/// достаются PYTHONHOME/PYTHONPATH, LD_LIBRARY_PATH и прочее с путями внутри AppImage —
+/// из-за них python падает с «No module named 'encodings'». Убираем всё это.
+#[cfg(not(target_os = "windows"))]
+fn clean_appimage_env(c: &mut Command) {
+    let Some(appdir) = std::env::var_os("APPDIR").filter(|d| !d.is_empty()) else {
+        return;
+    };
+    let appdir = std::path::PathBuf::from(appdir);
+    for k in [
+        "PYTHONHOME", "PYTHONPATH", "PERLLIB", "PERL5LIB", "GSETTINGS_SCHEMA_DIR",
+        "GDK_PIXBUF_MODULE_FILE", "GDK_PIXBUF_MODULEDIR", "GTK_PATH", "GTK_EXE_PREFIX",
+        "GTK_DATA_PREFIX", "GTK_IM_MODULE_FILE", "QT_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH",
+        "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_PATH", "GST_PLUGIN_PATH_1_0", "GST_PLUGIN_SCANNER",
+        "GST_PLUGIN_SCANNER_1_0", "APPDIR", "APPIMAGE", "ARGV0", "OWD",
+    ] {
+        c.env_remove(k);
+    }
+    // Списки путей: выкидываем только элементы внутри AppImage.
+    for k in ["LD_LIBRARY_PATH", "PATH", "XDG_DATA_DIRS", "XDG_CONFIG_DIRS"] {
+        if let Some(v) = std::env::var_os(k) {
+            let kept: Vec<_> = std::env::split_paths(&v).filter(|p| !p.starts_with(&appdir)).collect();
+            if kept.is_empty() {
+                c.env_remove(k);
+            } else if let Ok(j) = std::env::join_paths(kept) {
+                c.env(k, j);
+            }
+        }
+    }
 }
 
 /// Ищет исполняемый файл в PATH.

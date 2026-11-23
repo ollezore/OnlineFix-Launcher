@@ -953,7 +953,8 @@ pub fn prefix_ready(compat_dir: &Path) -> bool {
     IS_WINDOWS || compat_dir.join("pfx/system.reg").is_file()
 }
 
-/// Создаёт префикс отдельным шагом: `wineboot -u` через Proton, ждём завершения.
+/// Создаёт префикс отдельным шагом: Proton сам готовит префикс перед первой
+/// командой, поэтому запускаем безобидный `cmd /c exit` и ждём завершения.
 /// Блокирующая; вызывать из spawn_blocking. На Windows ничего не делает.
 pub fn init_prefix(proton_dir: &Path, compat_dir: &Path, use_umu: bool, log: Option<PathBuf>) -> anyhow::Result<()> {
     if prefix_ready(compat_dir) {
@@ -965,33 +966,37 @@ pub fn init_prefix(proton_dir: &Path, compat_dir: &Path, use_umu: bool, log: Opt
         c.env("PROTONPATH", proton_dir)
             .env("WINEPREFIX", compat_dir.join("pfx"))
             .env("GAMEID", "0")
-            .arg("wineboot");
+            .arg("cmd.exe");
         c
     } else {
         let mut c = command(proton_dir.join("proton"));
-        c.arg("run").arg("wineboot");
+        c.arg("run").arg("cmd.exe");
         c
     };
-    cmd.arg("-u").current_dir(compat_dir);
-    cmd.env("STEAM_COMPAT_DATA_PATH", compat_dir);
+    cmd.args(["/c", "exit"]).current_dir(compat_dir);
+    cmd.env("STEAM_COMPAT_DATA_PATH", compat_dir)
+        .env("STEAM_COMPAT_INSTALL_PATH", compat_dir);
     if let Some(root) = steam_root() {
         cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", root);
     }
     for (k, v) in installer_env() {
         cmd.env(k, v);
     }
-    match log.and_then(|p| std::fs::File::create(p).ok()) {
-        Some(f) => {
-            let f2 = f.try_clone()?;
-            cmd.stdout(f).stderr(f2);
-        }
-        None => {
-            cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        }
-    }
+    // Вывод всегда сохраняем: при ошибке показываем его пользователю.
+    let log = log.unwrap_or_else(|| compat_dir.join("prefix.log"));
+    let f = std::fs::File::create(&log)?;
+    cmd.stdout(f.try_clone()?).stderr(f);
     let st = cmd.stdin(Stdio::null()).status()?;
     if !prefix_ready(compat_dir) {
-        anyhow::bail!("Префикс не создался (wineboot завершился с кодом {:?})", st.code());
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        let tail: Vec<&str> = text.lines().rev().filter(|l| !l.trim().is_empty()).take(6).collect();
+        let tail = tail.into_iter().rev().collect::<Vec<_>>().join(" | ");
+        anyhow::bail!(
+            "Префикс не создался (код {:?}). Лог: {}. {}",
+            st.code(),
+            log.display(),
+            tail
+        );
     }
     Ok(())
 }
