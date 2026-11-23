@@ -157,6 +157,7 @@ pub fn list_protons() -> Vec<ProtonInfo> {
     let h = home();
     dirs_to_scan.push(h.join(".steam/root/compatibilitytools.d"));
     dirs_to_scan.push(h.join(".local/share/Steam/compatibilitytools.d"));
+    dirs_to_scan.push(h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"));
     dirs_to_scan.push(PathBuf::from("/usr/share/steam/compatibilitytools.d"));
     dirs_to_scan.push(PathBuf::from("/usr/local/share/steam/compatibilitytools.d"));
 
@@ -263,9 +264,11 @@ pub fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 
 fn rank(name: &str) -> u8 {
     let n = name.to_lowercase();
-    if n.contains("ge-proton") {
+    if n.contains("ge-proton") && n.ends_with(" latest") {
+        5
+    } else if n.contains("ge-proton") {
         4
-    } else if n.contains("cachyos") || n.contains("dwproton") || n.contains("proton-em") {
+    } else if n.contains("cachyos") || n.contains("dwproton") || n.contains("wineland") || n.contains("proton-em") {
         3
     } else if n.contains("experimental") {
         2
@@ -276,8 +279,8 @@ fn rank(name: &str) -> u8 {
     }
 }
 
-/// Сборки Proton, которые лаунчер умеет скачивать сам.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize, Serialize)]
+/// Сборки Proton, которые лаунчер умеет скачивать сам (менеджер Proton, как в Faugus).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ProtonKind {
     /// GloriousEggroll/proton-ge-custom — по умолчанию.
@@ -290,9 +293,20 @@ pub enum ProtonKind {
     CachyosV3,
     /// Dawn Winery DW-Proton (форк CachyOS с фиксами для гача-игр), на своём Forgejo.
     Dw,
+    /// Proton-Wineland (nanomatters, бывш. proton-cachyos → proton-salkim).
+    Wineland,
     /// Proton-EM — от автора Wayland-драйвера Wine (Wayland, HDR).
     Em,
 }
+
+pub const ALL_KINDS: [ProtonKind; 6] = [
+    ProtonKind::Ge,
+    ProtonKind::Cachyos,
+    ProtonKind::CachyosV3,
+    ProtonKind::Dw,
+    ProtonKind::Wineland,
+    ProtonKind::Em,
+];
 
 impl ProtonKind {
     pub fn title(self) -> &'static str {
@@ -301,19 +315,96 @@ impl ProtonKind {
             ProtonKind::Cachyos => "Proton-CachyOS",
             ProtonKind::CachyosV3 => "Proton-CachyOS v3",
             ProtonKind::Dw => "DW-Proton",
+            ProtonKind::Wineland => "Proton-Wineland",
             ProtonKind::Em => "Proton-EM",
         }
     }
-    /// API последнего релиза (GitHub или совместимый с ним Forgejo).
-    fn latest_url(self) -> &'static str {
+    /// API релизов (GitHub или совместимый с ним Forgejo): `…/releases`.
+    fn releases_api(self) -> &'static str {
         match self {
-            ProtonKind::Ge => "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest",
+            ProtonKind::Ge => "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases",
             ProtonKind::Cachyos | ProtonKind::CachyosV3 => {
-                "https://api.github.com/repos/CachyOS/proton-cachyos/releases/latest"
+                "https://api.github.com/repos/CachyOS/proton-cachyos/releases"
             }
-            ProtonKind::Dw => "https://dawn.wine/api/v1/repos/dawn-winery/dwproton/releases/latest",
-            ProtonKind::Em => "https://api.github.com/repos/BananaWorks07/Proton/releases/latest",
+            ProtonKind::Dw => "https://dawn.wine/api/v1/repos/dawn-winery/dwproton/releases",
+            ProtonKind::Wineland => "https://api.github.com/repos/nanomatters/proton-salkim/releases",
+            ProtonKind::Em => "https://api.github.com/repos/BananaWorks07/Proton/releases",
         }
+    }
+    fn v3(self) -> bool {
+        self == ProtonKind::CachyosV3
+    }
+    /// Папка «<сборка> Latest» — всегда самая свежая версия, обновляется сама.
+    pub fn latest_dir_name(self) -> String {
+        format!("{} Latest", self.title())
+    }
+}
+
+/// Файл в папке «… Latest» с тегом установленной версии.
+const LATEST_MARK: &str = ".ofl-latest";
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GhAsset {
+    name: String,
+    browser_download_url: String,
+    #[serde(default)]
+    size: u64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct GhRelease {
+    tag_name: String,
+    #[serde(default)]
+    published_at: Option<String>,
+    #[serde(default)]
+    draft: bool,
+    #[serde(default)]
+    assets: Vec<GhAsset>,
+}
+
+fn http() -> anyhow::Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .user_agent("OnlineFix-Launcher")
+        .build()?)
+}
+
+async fn get_json<T: serde::de::DeserializeOwned>(url: &str) -> anyhow::Result<T> {
+    let resp = http()?.get(url).send().await?;
+    if resp.status() == reqwest::StatusCode::FORBIDDEN || resp.status().as_u16() == 429 {
+        anyhow::bail!("GitHub временно ограничил запросы — попробуйте через несколько минут");
+    }
+    Ok(resp.error_for_status()?.json().await?)
+}
+
+/// Кэш списков релизов: GitHub без токена даёт 60 запросов в час.
+static RELEASES_CACHE: parking_lot::Mutex<
+    Option<std::collections::HashMap<&'static str, (std::time::Instant, Vec<GhRelease>)>>,
+> = parking_lot::Mutex::new(None);
+
+async fn fetch_releases(kind: ProtonKind, refresh: bool) -> anyhow::Result<Vec<GhRelease>> {
+    let api = kind.releases_api();
+    if !refresh {
+        if let Some((t, list)) = RELEASES_CACHE.lock().as_ref().and_then(|m| m.get(api)) {
+            if t.elapsed() < std::time::Duration::from_secs(600) {
+                return Ok(list.clone());
+            }
+        }
+    }
+    // per_page — GitHub, limit — Forgejo; лишний параметр каждый из них игнорирует.
+    let list: Vec<GhRelease> = get_json(&format!("{api}?per_page=60&limit=50")).await?;
+    let list: Vec<GhRelease> = list.into_iter().filter(|r| !r.draft).collect();
+    RELEASES_CACHE
+        .lock()
+        .get_or_insert_with(Default::default)
+        .insert(api, (std::time::Instant::now(), list.clone()));
+    Ok(list)
+}
+
+async fn fetch_release(kind: ProtonKind, tag: Option<&str>) -> anyhow::Result<GhRelease> {
+    let api = kind.releases_api();
+    match tag {
+        Some(t) => get_json(&format!("{api}/tags/{t}")).await,
+        None => get_json(&format!("{api}/latest")).await,
     }
 }
 
@@ -324,7 +415,7 @@ fn archive_stem(name: &str) -> Option<&str> {
 }
 
 /// Выбирает архив под процессор из ассетов релиза.
-/// GE: -x86_64 / -aarch64; CachyOS: -x86_64, -x86_64_v3 (только новые CPU), -arm64;
+/// GE: -x86_64 / -aarch64; CachyOS/Wineland: -x86_64, -x86_64_v3, -x86_64_wow64, -arm64;
 /// DW: -x86_64; EM: без суффикса (x86_64). `v3` — нужна именно сборка x86_64_v3.
 fn pick_asset<'a, A>(assets: &'a [A], name: impl Fn(&A) -> &str, v3: bool) -> Option<&'a A> {
     let arch = host_arch();
@@ -341,10 +432,10 @@ fn pick_asset<'a, A>(assets: &'a [A], name: impl Fn(&A) -> &str, v3: bool) -> Op
     if arch == "aarch64" {
         return tars.into_iter().find(|a| is_arm(name(a)));
     }
-    // Точное «-x86_64» без _v2/_v3 — работает на любом x86_64.
+    // Точное «-x86_64» без _v2/_v3/_wow64 — работает на любом x86_64.
     tars.iter()
         .find(|a| archive_stem(name(a)).is_some_and(|s| s.ends_with("x86_64")))
-        .or_else(|| tars.iter().find(|a| !is_arm(name(a)) && !name(a).contains("x86_64_v")))
+        .or_else(|| tars.iter().find(|a| !is_arm(name(a)) && !name(a).contains("x86_64_")))
         .copied()
 }
 
@@ -367,71 +458,183 @@ pub fn cpu_x86_64_v3() -> bool {
         .all(|f| have.contains(f))
 }
 
-/// Скачивает свежую сборку Proton и распаковывает в compatibilitytools.d.
-/// `progress(pct)` — проценты загрузки (0..=100), `status(text)` — этапы для уведомлений.
-/// Возвращает (версия, уже_была_установлена).
+/// Папки compatibilitytools.d в доме пользователя (туда можно ставить и откуда удалять).
+fn user_compat_dirs() -> Vec<PathBuf> {
+    let h = home();
+    let mut out: Vec<PathBuf> = Vec::new();
+    for d in [
+        compat_tools_dir(),
+        h.join(".steam/root/compatibilitytools.d"),
+        h.join(".local/share/Steam/compatibilitytools.d"),
+        h.join(".var/app/com.valvesoftware.Steam/.local/share/Steam/compatibilitytools.d"),
+    ] {
+        let key = std::fs::canonicalize(&d).unwrap_or_else(|_| d.clone());
+        if !out
+            .iter()
+            .any(|o| std::fs::canonicalize(o).unwrap_or_else(|_| o.clone()) == key)
+        {
+            out.push(d);
+        }
+    }
+    out
+}
+
+/// «x» входит в «name» и сразу за ним не цифра (GE-Proton10-2 ≠ GE-Proton10-25).
+fn contains_version(name: &str, x: &str) -> bool {
+    if x.is_empty() {
+        return false;
+    }
+    let mut from = 0;
+    while let Some(pos) = name[from..].find(x) {
+        let end = from + pos + x.len();
+        if !name[end..].starts_with(|c: char| c.is_ascii_digit()) {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+/// Ищет установленную версию: по точному имени папки (тег или имя архива),
+/// затем по вхождению тега/имени архива в имя папки.
+fn find_installed(kind: ProtonKind, tag: &str, stem: Option<&str>) -> Option<PathBuf> {
+    let (tag_l, stem_l) = (tag.to_lowercase(), stem.map(|s| s.to_lowercase()));
+    let mut fuzzy = None;
+    for dir in user_compat_dirs() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        for e in rd.flatten() {
+            let p = e.path();
+            if !p.join("proton").is_file() || !arch_ok(&p) {
+                continue;
+            }
+            let n = e.file_name().to_string_lossy().to_lowercase();
+            if n.ends_with(" latest") {
+                continue;
+            }
+            if n == tag_l || stem_l.as_deref() == Some(n.as_str()) {
+                return Some(p);
+            }
+            let v3_ok = n.contains("_v3") == kind.v3();
+            let hit = stem_l.as_deref().is_some_and(|s| contains_version(&n, s))
+                || (v3_ok && contains_version(&n, &tag_l));
+            if hit && fuzzy.is_none() {
+                fuzzy = Some(p);
+            }
+        }
+    }
+    fuzzy
+}
+
+fn latest_dir(kind: ProtonKind) -> PathBuf {
+    compat_tools_dir().join(kind.latest_dir_name())
+}
+
+/// Тег версии в папке «… Latest» (None — не установлена).
+fn latest_installed_tag(kind: ProtonKind) -> Option<String> {
+    let d = latest_dir(kind);
+    if !d.join("proton").is_file() {
+        return None;
+    }
+    Some(
+        std::fs::read_to_string(d.join(LATEST_MARK))
+            .map(|s| s.trim().to_string())
+            .unwrap_or_default(),
+    )
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseInfo {
+    pub tag: String,
+    pub published: Option<String>,
+    pub size: u64,
+    /// Путь к установленной папке, если эта версия уже стоит.
+    pub installed: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReleaseList {
+    pub kind: ProtonKind,
+    pub title: String,
+    /// Имя папки «… Latest».
+    pub latest_name: String,
+    /// Тег, который стоит в «… Latest» (пустая строка — тег неизвестен).
+    pub latest_installed: Option<String>,
+    pub latest_path: String,
+    pub releases: Vec<ReleaseInfo>,
+}
+
+/// Список версий сборки для менеджера Proton.
+pub async fn releases(kind: ProtonKind, refresh: bool) -> anyhow::Result<ReleaseList> {
+    let list = fetch_releases(kind, refresh).await?;
+    let releases = list
+        .iter()
+        .filter_map(|r| {
+            let a = pick_asset(&r.assets, |a| a.name.as_str(), kind.v3())?;
+            Some(ReleaseInfo {
+                tag: r.tag_name.clone(),
+                published: r.published_at.clone(),
+                size: a.size,
+                installed: find_installed(kind, &r.tag_name, archive_stem(&a.name))
+                    .map(|p| p.to_string_lossy().into_owned()),
+            })
+        })
+        .collect();
+    Ok(ReleaseList {
+        kind,
+        title: kind.title().into(),
+        latest_name: kind.latest_dir_name(),
+        latest_installed: latest_installed_tag(kind),
+        latest_path: latest_dir(kind).to_string_lossy().into_owned(),
+        releases,
+    })
+}
+
+/// Скачивает сборку Proton и распаковывает в compatibilitytools.d.
+/// `tag` — конкретная версия (None — последняя). `as_latest` — поставить в папку
+/// «… Latest» (её потом обновляет `update_latest_all`).
+/// `progress(pct)` — проценты загрузки, `status(text)` — этапы для уведомлений,
+/// `cancel` — флаг отмены. Возвращает (версия, уже_была_установлена).
 pub async fn install_proton(
     kind: ProtonKind,
+    tag: Option<&str>,
+    as_latest: bool,
     progress: impl Fn(u8),
     status: impl Fn(String),
+    cancel: &std::sync::atomic::AtomicBool,
 ) -> anyhow::Result<(String, bool)> {
     use futures_util::StreamExt;
+    use std::sync::atomic::Ordering;
     use tokio::io::AsyncWriteExt;
 
     if IS_WINDOWS {
         anyhow::bail!("На Windows Proton не нужен — игры запускаются напрямую");
     }
-    #[derive(serde::Deserialize)]
-    struct Asset {
-        name: String,
-        browser_download_url: String,
-        #[serde(default)]
-        size: u64,
-    }
-    #[derive(serde::Deserialize)]
-    struct Release {
-        tag_name: String,
-        assets: Vec<Asset>,
-    }
-
     let title = kind.title();
-    let client = reqwest::Client::builder()
-        .user_agent("OnlineFix-Launcher/0.3")
-        .build()?;
-    let rel: Release = client
-        .get(kind.latest_url())
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-    let arch = host_arch();
-    let v3 = kind == ProtonKind::CachyosV3;
-    if v3 && !cpu_x86_64_v3() {
+    if kind.v3() && !cpu_x86_64_v3() {
         anyhow::bail!("Процессор не поддерживает x86-64-v3 (AVX2/FMA) — скачайте обычный Proton-CachyOS");
     }
-    let asset = pick_asset(&rel.assets, |a| a.name.as_str(), v3)
+    let rel = fetch_release(kind, if as_latest { None } else { tag }).await?;
+    let arch = host_arch();
+    let asset = pick_asset(&rel.assets, |a| a.name.as_str(), kind.v3())
         .ok_or_else(|| anyhow::anyhow!("В релизе {} нет сборки под {arch}", rel.tag_name))?;
+    let stem = archive_stem(&asset.name).unwrap_or(&asset.name).to_string();
 
     let dir = compat_tools_dir();
     tokio::fs::create_dir_all(&dir).await?;
-    let stem = archive_stem(&asset.name).unwrap_or(&asset.name).to_string();
-    let have = [rel.tag_name.as_str(), stem.as_str()].iter().any(|name| {
-        let p = dir.join(name);
-        p.join("proton").is_file() && arch_ok(&p)
-    });
-    if have {
+    if as_latest {
+        if latest_installed_tag(kind).as_deref() == Some(rel.tag_name.as_str()) {
+            return Ok((rel.tag_name, true));
+        }
+    } else if find_installed(kind, &rel.tag_name, Some(&stem)).is_some() {
         return Ok((rel.tag_name, true));
     }
-    let tmp = dir.join(format!("{}.part", asset.name));
-    status(format!(
-        "Скачиваю {} ({} МБ)…",
-        rel.tag_name,
-        asset.size / 1_048_576
-    ));
-    progress(0);
 
-    let resp = client
+    let tmp = dir.join(format!("{}.part", asset.name));
+    status(format!("Скачиваю {} ({} МБ)…", rel.tag_name, asset.size / 1_048_576));
+    progress(0);
+    let resp = http()?
         .get(&asset.browser_download_url)
         .send()
         .await?
@@ -440,54 +643,118 @@ pub async fn install_proton(
     let mut file = tokio::fs::File::create(&tmp).await?;
     let mut stream = resp.bytes_stream();
     let (mut done, mut last_pct) = (0u64, 0u64);
+    let mut failed: Option<anyhow::Error> = None;
     while let Some(chunk) = stream.next().await {
+        if cancel.load(Ordering::Relaxed) {
+            failed = Some(anyhow::anyhow!("Загрузка {title} отменена"));
+            break;
+        }
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
-                drop(file);
-                let _ = tokio::fs::remove_file(&tmp).await;
-                return Err(e.into());
+                failed = Some(e.into());
+                break;
             }
         };
         done += chunk.len() as u64;
-        file.write_all(&chunk).await?;
+        if let Err(e) = file.write_all(&chunk).await {
+            failed = Some(e.into());
+            break;
+        }
         let pct = if total > 0 { (done * 100 / total).min(100) } else { 0 };
         if pct > last_pct {
             last_pct = pct;
             progress(pct as u8);
         }
     }
-    file.flush().await?;
+    let _ = file.flush().await;
     drop(file);
+    if let Some(e) = failed {
+        let _ = tokio::fs::remove_file(&tmp).await;
+        return Err(e);
+    }
 
     status(format!("Распаковываю {title}…"));
-    // Если раньше была поставлена сборка с тем же именем (например, не под тот
-    // процессор) — убираем её, иначе файлы смешаются.
-    if let Ok(o) = command("sh")
-        .arg("-c")
-        .arg("tar -tf \"$1\" | head -n 1")
-        .arg("sh")
-        .arg(&tmp)
-        .output()
-    {
-        let top = String::from_utf8_lossy(&o.stdout);
-        let top = top.trim().trim_start_matches("./").split('/').next().unwrap_or("").to_string();
-        if !top.is_empty() && dir.join(&top).is_dir() {
-            let _ = tokio::fs::remove_dir_all(dir.join(&top)).await;
-        }
-    }
+    // Распаковываем во временную папку, потом переносим — так не остаётся
+    // полураспакованных версий и не смешиваются файлы старой и новой.
+    let work = dir.join(format!(".ofl-extract-{}", stem));
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    tokio::fs::create_dir_all(&work).await?;
     // GNU tar сам определяет gzip/xz/zstd по содержимому.
-    let status_code = command("tar")
+    let ok = command("tar")
         .arg("-xf")
         .arg(&tmp)
         .arg("-C")
-        .arg(&dir)
-        .status()?;
+        .arg(&work)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
     let _ = tokio::fs::remove_file(&tmp).await;
-    if !status_code.success() {
+    let top = std::fs::read_dir(&work)
+        .ok()
+        .and_then(|rd| rd.flatten().map(|e| e.path()).find(|p| p.join("proton").is_file()));
+    let Some(top) = top.filter(|_| ok) else {
+        let _ = tokio::fs::remove_dir_all(&work).await;
         anyhow::bail!("Не удалось распаковать архив {title} (нужен tar с поддержкой xz)");
+    };
+    let target = if as_latest {
+        latest_dir(kind)
+    } else {
+        dir.join(top.file_name().unwrap_or_default())
+    };
+    if target.exists() {
+        let _ = tokio::fs::remove_dir_all(&target).await;
+    }
+    let moved = tokio::fs::rename(&top, &target).await;
+    let _ = tokio::fs::remove_dir_all(&work).await;
+    moved?;
+    if as_latest {
+        let name = kind.latest_dir_name();
+        let _ = std::fs::write(target.join(LATEST_MARK), &rel.tag_name);
+        // Своё имя для Steam, иначе он покажет «… Latest» под именем версии
+        // и спутает её с отдельно установленной.
+        let vdf = format!(
+            "\"compatibilitytools\"\n{{\n  \"compat_tools\"\n  {{\n    \"{name}\"\n    {{\n      \"install_path\" \".\"\n      \"display_name\" \"{name}\"\n      \"from_oslist\" \"windows\"\n      \"to_oslist\" \"linux\"\n    }}\n  }}\n}}\n"
+        );
+        let _ = std::fs::write(target.join("compatibilitytool.vdf"), vdf);
     }
     Ok((rel.tag_name, false))
+}
+
+/// Удаляет версию Proton. Только из пользовательских compatibilitytools.d —
+/// официальные Proton из Steam не трогаем.
+pub fn remove_proton(path: &str) -> anyhow::Result<()> {
+    let p = std::fs::canonicalize(path)?;
+    let parent = p.parent().ok_or_else(|| anyhow::anyhow!("Неверный путь"))?;
+    let allowed = user_compat_dirs()
+        .iter()
+        .filter_map(|d| std::fs::canonicalize(d).ok())
+        .any(|d| d == parent);
+    if !allowed || !p.join("proton").is_file() {
+        anyhow::bail!("Удалять можно только версии из compatibilitytools.d");
+    }
+    std::fs::remove_dir_all(&p)?;
+    Ok(())
+}
+
+/// Обновляет все установленные «… Latest» до свежих версий (при запуске лаунчера).
+pub async fn update_latest_all(status: impl Fn(String)) {
+    if IS_WINDOWS {
+        return;
+    }
+    let never = std::sync::atomic::AtomicBool::new(false);
+    for kind in ALL_KINDS {
+        let Some(have) = latest_installed_tag(kind) else { continue };
+        let Ok(rel) = fetch_release(kind, None).await else { continue };
+        if rel.tag_name == have {
+            continue;
+        }
+        status(format!("Обновляю {} до {}…", kind.latest_dir_name(), rel.tag_name));
+        match install_proton(kind, None, true, |_| {}, |_| {}, &never).await {
+            Ok((tag, _)) => status(format!("{} обновлён: {}", kind.latest_dir_name(), tag)),
+            Err(e) => status(format!("Не удалось обновить {}: {}", kind.latest_dir_name(), e)),
+        }
+    }
 }
 
 pub fn umu_available() -> bool {
@@ -681,6 +948,54 @@ fn spawn_proton(spec: RunSpec) -> anyhow::Result<Child> {
     Ok(cmd.spawn()?)
 }
 
+/// Префикс уже создан (Proton кладёт его в `<compat>/pfx`).
+pub fn prefix_ready(compat_dir: &Path) -> bool {
+    IS_WINDOWS || compat_dir.join("pfx/system.reg").is_file()
+}
+
+/// Создаёт префикс отдельным шагом: `wineboot -u` через Proton, ждём завершения.
+/// Блокирующая; вызывать из spawn_blocking. На Windows ничего не делает.
+pub fn init_prefix(proton_dir: &Path, compat_dir: &Path, use_umu: bool, log: Option<PathBuf>) -> anyhow::Result<()> {
+    if prefix_ready(compat_dir) {
+        return Ok(());
+    }
+    std::fs::create_dir_all(compat_dir)?;
+    let mut cmd = if use_umu && umu_available() {
+        let mut c = command("umu-run");
+        c.env("PROTONPATH", proton_dir)
+            .env("WINEPREFIX", compat_dir.join("pfx"))
+            .env("GAMEID", "0")
+            .arg("wineboot");
+        c
+    } else {
+        let mut c = command(proton_dir.join("proton"));
+        c.arg("run").arg("wineboot");
+        c
+    };
+    cmd.arg("-u").current_dir(compat_dir);
+    cmd.env("STEAM_COMPAT_DATA_PATH", compat_dir);
+    if let Some(root) = steam_root() {
+        cmd.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", root);
+    }
+    for (k, v) in installer_env() {
+        cmd.env(k, v);
+    }
+    match log.and_then(|p| std::fs::File::create(p).ok()) {
+        Some(f) => {
+            let f2 = f.try_clone()?;
+            cmd.stdout(f).stderr(f2);
+        }
+        None => {
+            cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        }
+    }
+    let st = cmd.stdin(Stdio::null()).status()?;
+    if !prefix_ready(compat_dir) {
+        anyhow::bail!("Префикс не создался (wineboot завершился с кодом {:?})", st.code());
+    }
+    Ok(())
+}
+
 /// Принудительно завершает игру: на Linux — все процессы Wine в префиксе,
 /// на Windows — дерево процессов по pid.
 pub fn kill(proton_dir: &Path, compat_dir: &Path, pid: Option<u32>) {
@@ -719,7 +1034,7 @@ pub fn parse_env(s: &str) -> Vec<(String, String)> {
 
 #[cfg(test)]
 mod tests {
-    use super::{host_arch, natural_cmp, pick_asset, windows_cmdline_args};
+    use super::{contains_version, host_arch, natural_cmp, pick_asset, windows_cmdline_args};
     use std::cmp::Ordering::*;
 
     #[test]
@@ -757,11 +1072,42 @@ mod tests {
                 Some("proton-cachyos-11.0-20261015-slr-x86_64_v3.tar.xz")
             );
             assert_eq!(pick_asset(&dw, nm, true).copied(), None);
+            let wl = [
+                "proton-wineland-11.0-20261119-x86_64.tar.xz",
+                "proton-wineland-11.0-20261119-x86_64_v3.tar.xz",
+                "proton-wineland-11.0-20261119-x86_64_wow64.tar.xz",
+            ];
+            assert_eq!(pick(&wl), Some("proton-wineland-11.0-20261119-x86_64.tar.xz"));
             assert_eq!(pick(&ge), Some("GE-Proton11-12-x86_64.tar.gz"));
             assert_eq!(pick(&dw), Some("dwproton-11.0-17-x86_64.tar.xz"));
             assert_eq!(pick(&em), Some("proton-EM-10.0-37-HDR.tar.xz"));
             assert_eq!(pick(&["GE-Proton9-1.tar.gz"]), Some("GE-Proton9-1.tar.gz"));
         }
+    }
+
+    /// Живой запрос к GitHub/Forgejo: cargo test --lib live_releases -- --ignored --nocapture
+    #[tokio::test]
+    #[ignore]
+    async fn live_releases() {
+        for kind in super::ALL_KINDS {
+            match super::releases(kind, true).await {
+                Ok(l) => println!(
+                    "{:<18} {:>3} версий, свежая: {}",
+                    l.title,
+                    l.releases.len(),
+                    l.releases.first().map(|r| r.tag.as_str()).unwrap_or("—")
+                ),
+                Err(e) => panic!("{kind:?}: {e}"),
+            }
+        }
+    }
+
+    #[test]
+    fn version_match() {
+        assert!(contains_version("ge-proton10-25", "ge-proton10-25"));
+        assert!(!contains_version("ge-proton10-25", "ge-proton10-2"));
+        assert!(contains_version("proton-cachyos-11.0-20261015-slr-x86_64", "cachyos-11.0-20261015-slr"));
+        assert!(contains_version("игры ge-proton9-1", "ge-proton9-1"));
     }
 
     #[test]

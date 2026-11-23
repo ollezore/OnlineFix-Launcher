@@ -527,6 +527,7 @@ async function refreshLibrary() {
 
 const STATUS = {
   downloading: ["Скачивается", ""],
+  preparing: ["Проверка и создание префикса…", "warn"],
   downloaded: ["Скачано — нужна установка", "warn"],
   installing: ["Установка…", "warn"],
   needsExe: ["Выберите exe игры", "warn"],
@@ -1023,17 +1024,10 @@ async function renderSettings() {
       ? `<option value="">Автоматически (${esc(protons[0].name)})</option>` + protons.map((p) => `<option ${settings.proton === p.name ? "selected" : ""}>${esc(p.name)}</option>`).join("")
       : `<option value="">Proton не найден</option>`;
     mdSelect($("#set-proton"));
-    const KIND_RE = { ge: /ge-proton/i, cachyos: /cachyos(?!.*_v3)/i, "cachyos-v3": /cachyos.*_v3/i, dw: /dwproton/i, em: /proton-em/i };
-    $$(".proton-src").forEach((row) => {
-      const names = protons.filter((p) => KIND_RE[row.dataset.kind].test(p.name)).map((p) => p.name);
-      $(".proton-have", row).textContent = names.length
-        ? t("Установлено: {0}", [names.slice(0, 3).join(", ") + (names.length > 3 ? "…" : "")])
-        : t("Не установлен.");
-      if (row.dataset.kind === "cachyos-v3" && !sys.cpuV3) {
-        $(".proton-have", row).textContent = t("Ваш процессор не поддерживает x86-64-v3 — используйте обычный Proton-CachyOS");
-        if (!protonBusy.has("cachyos-v3")) $("button", row).disabled = true;
-      }
-    });
+    const custom = protons.filter((p) => /ge-proton|cachyos|dwproton|wineland|proton-em/i.test(p.name)).map((p) => p.name);
+    $("#pm-summary").textContent = custom.length
+      ? t("Установлено: {0}", [custom.slice(0, 4).join(", ") + (custom.length > 4 ? "…" : "")])
+      : t("Не установлен.");
     $("#set-wayland").checked = !!settings.wayland;
     renderThemeSettings();
     renderLangSelect($("#set-lang"));
@@ -1068,7 +1062,129 @@ async function renderSettings() {
   } catch (e) { fail(e); }
 }
 
-const protonBusy = new Set();
+// ───────────── Менеджер Proton (как в Faugus Launcher) ─────────────
+// Сборки: вкладки-чипы; у каждой — «<сборка> Latest» (обновляется сама при запуске)
+// и список версий с кнопками «Скачать» / «Удалить» / «Отмена» и волнистой полоской.
+
+const PROTON_KINDS = [
+  { kind: "ge", title: "GE-Proton", desc: "Рекомендуется для игр с онлайн-фиксом: работает без Steam Runtime и содержит больше исправлений для игр. При «Автоматически» берётся самая новая версия GE." },
+  { kind: "cachyos", title: "CachyOS", desc: "Сборка CachyOS: свежий Wine, оптимизации и патчи производительности. Обычная x86_64 — идёт на любом процессоре и дистрибутиве" },
+  { kind: "cachyos-v3", title: "CachyOS v3", desc: "Та же сборка, оптимизированная под x86-64-v3 (AVX2): немного быстрее, но только для процессоров Intel с 2013 года (Haswell) и AMD Zen" },
+  { kind: "dw", title: "DW-Proton", desc: "Dawn Winery: форк Proton-CachyOS с исправлениями для игр, которые плохо идут в обычном Proton" },
+  { kind: "wineland", title: "Wineland", desc: "Proton-Wineland: форк Proton-CachyOS от nanomatters со своими патчами Wine" },
+  { kind: "em", title: "Proton-EM", desc: "От автора Wayland-драйвера Wine: лучшая поддержка Wayland и HDR. Включите «Wayland» в настройках" },
+];
+// Идущие загрузки: «kind:id» → проценты (id — тег или "latest"). Живут и после закрытия окна.
+const protonJobs = new Map();
+let pmKind = "ge";
+
+async function protonManager() {
+  const sys = await invoke("system_status").catch(() => ({}));
+  openDialog(`
+    <h2 class="headline-s">Менеджер Proton</h2>
+    <div class="chips pm-chips">${PROTON_KINDS.map((k) =>
+      `<button class="chip ${k.kind === pmKind ? "selected" : ""}" data-kind="${k.kind}">${icon("check")}${esc(k.title)}</button>`).join("")}</div>
+    <div class="body-m muted pm-desc"></div>
+    <div class="scroll pm-scroll"><div class="list pm-list"></div></div>
+    <div class="dlg-actions">
+      <button class="btn text has-icon" id="pm-refresh">${icon("refresh")}Обновить список</button>
+      <span class="grow"></span>
+      <button class="btn filled" data-close>Закрыть</button>
+    </div>`, (dlg) => {
+    const list = $(".pm-list", dlg);
+    let data = null;
+
+    const jobKey = (id) => `${pmKind}:${id}`;
+    const rowHTML = ({ id, title, sub, installed, path, disabled }) => {
+      const busy = protonJobs.has(jobKey(id));
+      const pct = protonJobs.get(jobKey(id)) ?? 0;
+      const btn = busy
+        ? `<button class="btn text" data-pm="cancel">Отмена</button>`
+        : installed
+          ? `<button class="btn tonal pm-remove" data-pm="remove" data-path="${esc(path)}">Удалить</button>`
+          : `<button class="btn tonal has-icon" data-pm="install" ${disabled ? "disabled" : ""}>${icon("download")}Скачать</button>`;
+      return `<div class="list-item pm-row" data-id="pm:${esc(pmKind)}:${esc(id)}" data-pmid="${esc(id)}">
+        <div class="grow">
+          <div class="title-m">${esc(title)}${installed ? ` <span class="pm-badge">${icon("check")}${t("установлен")}</span>` : ""}</div>
+          <div class="body-s muted">${sub}</div>
+          <div class="progress ${busy && !pct ? "indet" : ""}" ${busy ? "" : "hidden"}><i style="width:${pct}%"></i></div>
+        </div>${btn}</div>`;
+    };
+
+    const render = () => {
+      const meta = PROTON_KINDS.find((k) => k.kind === pmKind);
+      const v3off = pmKind === "cachyos-v3" && !sys.cpuV3;
+      $(".pm-desc", dlg).textContent = v3off
+        ? t("Ваш процессор не поддерживает x86-64-v3 — используйте обычный Proton-CachyOS")
+        : t(meta.desc);
+      if (!data) { list.innerHTML = `<div class="list-item"><div class="spinner" style="margin:auto"></div></div>`; return; }
+      if (data.error) { list.innerHTML = `<div class="list-item"><div class="body-m" style="color:var(--md-error)">${esc(data.error)}</div></div>`; return; }
+      const latestSub = data.latestInstalled != null
+        ? `${t("Всегда последняя версия, обновляется сама при запуске лаунчера")} · ${esc(data.latestInstalled || "?")}`
+        : t("Всегда последняя версия, обновляется сама при запуске лаунчера");
+      list.innerHTML = rowHTML({ id: "latest", title: data.latestName, sub: latestSub, installed: data.latestInstalled != null, path: data.latestPath, disabled: v3off })
+        + data.releases.map((r) => rowHTML({
+          id: r.tag, title: r.tag,
+          sub: [r.published ? fmtDate(r.published) : "", r.size ? fmtBytes(r.size) : ""].filter(Boolean).join(" · "),
+          installed: !!r.installed, path: r.installed, disabled: v3off,
+        })).join("");
+      hydrateIcons(list);
+    };
+
+    const load = async (refresh = false) => {
+      const kind = pmKind;
+      data = null; render();
+      try {
+        const d = await invoke("proton_releases", { kind, refresh });
+        if (kind === pmKind) { data = d; render(); }
+      } catch (e) { if (kind === pmKind) { data = { error: String(e) }; render(); } }
+    };
+
+    list.onclick = async (e) => {
+      const b = e.target.closest("[data-pm]");
+      if (!b) return;
+      const row = b.closest(".pm-row"), id = row.dataset.pmid, kind = pmKind, key = `${kind}:${id}`;
+      const args = { kind, tag: id === "latest" ? null : id, latest: id === "latest" };
+      if (b.dataset.pm === "cancel") { invoke("cancel_proton", args).catch(fail); return; }
+      if (b.dataset.pm === "remove") {
+        const ok = await confirmDialog({ icon: "delete", title: t("Удалить {0}?", [id === "latest" ? data.latestName : id]),
+          text: esc(b.dataset.path), ok: t("Удалить"), danger: true });
+        if (!ok) { protonManager(); return; }
+        try { await invoke("remove_proton", { path: b.dataset.path }); snack(t("Удалено")); } catch (err) { fail(err); }
+        protonManager();
+        return;
+      }
+      protonJobs.set(key, 0);
+      render();
+      try {
+        const r = await invoke("install_proton", args);
+        snack(r.already ? `${r.tag} — у вас уже последняя версия` : `${r.tag} установлен`);
+      } catch (err) { if (!/отменена/i.test(String(err))) fail(err); }
+      protonJobs.delete(key);
+      if (kind === pmKind && $("#dialog").open && $(".pm-list")) load(false);
+      if (state.view === "settings") renderSettings();
+    };
+
+    $$(".pm-chips .chip", dlg).forEach((c) => (c.onclick = () => {
+      pmKind = c.dataset.kind;
+      $$(".pm-chips .chip", dlg).forEach((x) => x.classList.toggle("selected", x === c));
+      load(false);
+    }));
+    $("#pm-refresh", dlg).onclick = () => load(true);
+    load(false);
+  });
+}
+
+listen("proton-progress", (e) => {
+  const { kind, id, pct } = e.payload;
+  protonJobs.set(`${kind}:${id}`, pct);
+  const row = document.querySelector(`.pm-row[data-id="pm:${CSS.escape(kind)}:${CSS.escape(id)}"]`);
+  if (!row) return;
+  const bar = $(".progress", row);
+  bar.hidden = false;
+  bar.classList.remove("indet");
+  $("i", bar).style.width = `${pct}%`;
+});
 
 async function saveSettings(patch) {
   const s = { ...state.settings, ...patch };
@@ -1185,36 +1301,7 @@ function bind() {
   $("#set-limit").onchange = (e) => saveSettings({ downloadLimitMbps: Math.max(0, parseInt(e.target.value) || 0) });
   $("#set-umu").onchange = (e) => saveSettings({ useUmu: e.target.checked });
   $("#set-overlay").onchange = (e) => saveSettings({ steamOverlay: e.target.checked });
-  // Сборки Proton: кнопка «Скачать последнюю» + волнистая полоска загрузки.
-  $$(".proton-src").forEach((row) => {
-    const kind = row.dataset.kind, b = $("button", row), bar = $(".progress", row);
-    b.onclick = async () => {
-      if (protonBusy.has(kind)) return;
-      protonBusy.add(kind);
-      b.disabled = true;
-      b.lastChild.textContent = t("Скачиваю…");
-      $("i", bar).style.width = "0%";
-      bar.classList.add("indet");
-      bar.hidden = false;
-      try {
-        const r = await invoke("install_proton", { kind });
-        snack(r.already ? `${r.tag} — у вас уже последняя версия` : `${r.tag} установлен`);
-      } catch (err) { fail(err); }
-      protonBusy.delete(kind);
-      bar.hidden = true;
-      b.disabled = false;
-      b.lastChild.textContent = t("Скачать последнюю");
-      renderSettings();
-    };
-  });
-  listen("proton-progress", (e) => {
-    const row = $(`.proton-src[data-kind="${e.payload.kind}"]`);
-    if (!row) return;
-    const bar = $(".progress", row);
-    bar.hidden = false;
-    bar.classList.remove("indet");
-    $("i", bar).style.width = `${e.payload.pct}%`;
-  });
+  $("#open-pm").onclick = () => protonManager();
   $("#set-wayland").onchange = (e) => saveSettings({ wayland: e.target.checked });
   $("#set-log").onchange = (e) => saveSettings({ protonLog: e.target.checked });
   $("#set-proton").onchange = (e) => saveSettings({ proton: e.target.value || null });
@@ -1276,6 +1363,9 @@ async function mockInvoke(cmd, args) {
     case "running_games": return [];
     case "downloads": return [{ id: "7dtd", state: "live", progressBytes: 6.2e9, totalBytes: 17.6e9, speedBps: 12.4e6, etaSecs: 920 }];
     case "get_settings": return { gamesDir: "~/Games/OnlineFix-Launcher", source: "arachnel", proton: null, useUmu: false, downloadLimitMbps: 0, protonLog: false, prefixesDir: null };
+    case "proton_releases": return { kind: args?.kind, title: "GE-Proton", latestName: "GE-Proton Latest", latestInstalled: "GE-Proton11-12", latestPath: "~/.steam/root/compatibilitytools.d/GE-Proton Latest",
+      releases: [["GE-Proton11-12", "2026-11-10", 0], ["GE-Proton11-11", "2026-10-28", 1], ["GE-Proton11-10", "2026-10-12", 0], ["GE-Proton10-25", "2026-09-30", 1], ["GE-Proton10-24", "2026-09-14", 0]]
+        .map(([tag, d, inst]) => ({ tag, published: d, size: 512e6, installed: inst ? `~/.steam/root/compatibilitytools.d/${tag}` : null })) };
     case "list_protons": return [{ name: "GE-Proton10-25", path: "" }, { name: "GE-Proton10-9", path: "" }, { name: "proton-cachyos-11.0-20261015-slr-x86_64", path: "" }, { name: "proton-cachyos-11.0-20261015-slr-x86_64_v3", path: "" }, { name: "Proton - Experimental", path: "" }];
     case "system_status": return { platform: "linux", steamRoot: "~/.local/share/Steam", steamRunning: false, umu: false, protons: 1, geProton: false, cpuV3: true, archiver: "/usr/bin/7z", unrar: false, steamFlatpak: false, distro: "ubuntu", distroLike: "debian" };
     case "dir_info": return { fs: /mnt/.test(args.path) ? "fuseblk" : "ext4", unsuitable: /mnt/.test(args.path), freeBytes: 412e9 };

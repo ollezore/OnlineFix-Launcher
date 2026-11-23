@@ -192,11 +192,11 @@ async fn start_torrent(app: AppHandle, game: Game) -> CmdResult<()> {
                 } else {
                     state.update(&id, |g| {
                         if g.status == Status::Downloading {
-                            g.status = Status::Downloaded;
+                            g.status = Status::Preparing;
                         }
                     });
-                    let title = state.game(&id).map(|g| g.title).unwrap_or_default();
-                    toast(&app2, format!("«{title}» скачана — можно устанавливать"));
+                    notify(&app2);
+                    prepare_game(&app2, &id).await;
                 }
             }
             Err(e) => {
@@ -206,6 +206,60 @@ async fn start_torrent(app: AppHandle, game: Game) -> CmdResult<()> {
         notify(&app2);
     });
     Ok(())
+}
+
+/// Шаги после скачивания: проверка файлов → создание префикса → готово к установке.
+/// Сама установка запускается отдельно (кнопка «Установить»).
+async fn prepare_game(app: &AppHandle, id: &str) {
+    let state = app.state::<AppState>();
+    let Ok(game) = state.game(id) else { return };
+    let fail = |msg: String| {
+        state.update(id, |g| {
+            g.status = Status::Downloaded;
+            g.last_error = Some(msg.clone());
+        });
+        notify(app);
+    };
+
+    // 1. Проверка: файлы раздачи на месте.
+    let dl = game.download_dir();
+    let has_files = tokio::task::spawn_blocking(move || {
+        std::fs::read_dir(&dl).map(|mut r| r.next().is_some()).unwrap_or(false)
+    })
+    .await
+    .unwrap_or(false);
+    if !has_files {
+        return fail("Скачанные файлы не найдены в папке игры".into());
+    }
+
+    // 2. Префикс (только Linux). Нет Proton — не страшно, создастся при установке.
+    if !sys::IS_WINDOWS {
+        match state.resolve_proton(&game) {
+            Ok(proton_dir) => {
+                toast(app, format!("«{}»: создаю префикс…", game.title));
+                let compat = game.compat_dir();
+                let use_umu = state.settings.lock().use_umu;
+                let log = state.settings.lock().proton_log.then(|| game.dir.join("prefix.log"));
+                let res = tokio::task::spawn_blocking(move || proton::init_prefix(&proton_dir, &compat, use_umu, log))
+                    .await
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.map_err(|e| e.to_string()));
+                if let Err(e) = res {
+                    return fail(e);
+                }
+            }
+            Err(e) => toast(app, format!("Префикс создам при установке: {e}")),
+        }
+    }
+
+    // 3. Готово к установке.
+    state.update(id, |g| {
+        if g.status == Status::Preparing {
+            g.status = Status::Downloaded;
+        }
+    });
+    notify(app);
+    toast(app, format!("«{}» скачана, префикс готов — можно устанавливать", game.title));
 }
 
 #[derive(Serialize)]
@@ -974,6 +1028,23 @@ async fn install_game_impl(app: &AppHandle, id: &str, chosen: Option<PathBuf>) -
     };
 
     let compat = game.compat_dir();
+    // Префикс должен существовать до установщика (если шаг после скачивания пропущен).
+    if !proton::prefix_ready(&compat) {
+        toast(app, "Создаю префикс…");
+        let (pd, cd, lg) = (proton_dir.clone(), compat.clone(), log.clone());
+        let res = tokio::task::spawn_blocking(move || proton::init_prefix(&pd, &cd, use_umu, lg))
+            .await
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.map_err(|e| e.to_string()));
+        if let Err(e) = res {
+            state.update(&id, |g| {
+                g.status = Status::Downloaded;
+                g.last_error = Some(e.clone());
+            });
+            notify(app);
+            return Err(e);
+        }
+    }
     let mut first = match proton::spawn(proton::RunSpec {
         proton_dir: &proton_dir,
         compat_dir: &compat,
@@ -1873,34 +1944,90 @@ struct GeResult {
     already: bool,
 }
 
-/// Скачивает свежий GE-Proton (только Linux). Оставлено для мастера первого запуска.
+/// Скачивает GE-Proton (только Linux) для мастера первого запуска и кнопки
+/// в «Системе»: ставится как «GE-Proton Latest», который потом обновляется сам.
 #[tauri::command]
 async fn install_ge_proton(app: AppHandle) -> CmdResult<GeResult> {
-    install_proton(app, proton::ProtonKind::Ge).await
+    install_proton(app, proton::ProtonKind::Ge, None, true).await
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct ProtonProgress {
     kind: proton::ProtonKind,
+    /// Тег версии или "latest".
+    id: String,
     pct: u8,
 }
 
-/// Скачивает свежую сборку Proton выбранного типа (только Linux).
+/// Флаги отмены идущих загрузок Proton: ключ «kind:id».
+static PROTON_CANCEL: parking_lot::Mutex<Option<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>> =
+    parking_lot::Mutex::new(None);
+
+fn proton_job_key(kind: proton::ProtonKind, tag: &Option<String>, latest: bool) -> (String, String) {
+    let id = if latest { "latest".to_string() } else { tag.clone().unwrap_or_else(|| "latest".into()) };
+    (format!("{kind:?}:{id}"), id)
+}
+
+/// Список версий сборки Proton для менеджера (только Linux).
+#[tauri::command]
+async fn proton_releases(kind: proton::ProtonKind, refresh: bool) -> CmdResult<proton::ReleaseList> {
+    proton::releases(kind, refresh).await.map_err(err)
+}
+
+/// Скачивает сборку Proton: конкретную версию (`tag`) или «… Latest» (`latest`).
 /// Проценты загрузки идут событием `proton-progress`.
 #[tauri::command]
-async fn install_proton(app: AppHandle, kind: proton::ProtonKind) -> CmdResult<GeResult> {
+async fn install_proton(
+    app: AppHandle,
+    kind: proton::ProtonKind,
+    tag: Option<String>,
+    latest: bool,
+) -> CmdResult<GeResult> {
+    let (key, id) = proton_job_key(kind, &tag, latest);
+    let flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let mut m = PROTON_CANCEL.lock();
+        let m = m.get_or_insert_with(HashMap::new);
+        if m.contains_key(&key) {
+            return Err("Эта версия уже скачивается".into());
+        }
+        m.insert(key.clone(), flag.clone());
+    }
     let (a1, a2) = (app.clone(), app.clone());
-    proton::install_proton(
+    let res = proton::install_proton(
         kind,
+        tag.as_deref(),
+        latest,
         move |pct| {
-            let _ = a1.emit("proton-progress", ProtonProgress { kind, pct });
+            let _ = a1.emit("proton-progress", ProtonProgress { kind, id: id.clone(), pct });
         },
         move |msg| toast(&a2, msg),
+        &flag,
     )
-    .await
-    .map(|(tag, already)| GeResult { tag, already })
-    .map_err(err)
+    .await;
+    if let Some(m) = PROTON_CANCEL.lock().as_mut() {
+        m.remove(&key);
+    }
+    res.map(|(tag, already)| GeResult { tag, already }).map_err(err)
+}
+
+/// Отменяет загрузку версии Proton.
+#[tauri::command]
+fn cancel_proton(kind: proton::ProtonKind, tag: Option<String>, latest: bool) {
+    let (key, _) = proton_job_key(kind, &tag, latest);
+    if let Some(f) = PROTON_CANCEL.lock().as_ref().and_then(|m| m.get(&key)) {
+        f.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Удаляет версию Proton из compatibilitytools.d (не во время игры).
+#[tauri::command]
+fn remove_proton(state: State<AppState>, path: String) -> CmdResult<()> {
+    if !state.running.lock().is_empty() {
+        return Err("Закройте игру перед удалением Proton".into());
+    }
+    proton::remove_proton(&path).map_err(err)
 }
 
 #[tauri::command]
@@ -1933,7 +2060,7 @@ pub fn run() {
             let mut games: Vec<Game> = library::load_json(&data_dir.join("library.json"));
             // Прерванные установки откатываем в «скачано».
             for g in games.iter_mut() {
-                if g.status == Status::Installing {
+                if matches!(g.status, Status::Installing | Status::Preparing) {
                     g.status = Status::Downloaded;
                 }
             }
@@ -1954,6 +2081,13 @@ pub fn run() {
                 running: Mutex::new(HashMap::new()),
                 covers: Mutex::new(covers_cache),
             });
+            // «… Latest» версии Proton обновляются сами при запуске (Linux).
+            {
+                let h = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    proton::update_latest_all(move |msg| toast(&h, msg)).await;
+                });
+            }
             // Самопроверка загрузки базы Online-Fix: LINFIX_SELFTEST=onlinefix linfix.exe
             if std::env::var("LINFIX_SELFTEST").as_deref() == Ok("onlinefix") {
                 let h = app.handle().clone();
@@ -2019,6 +2153,9 @@ pub fn run() {
             cover,
             install_ge_proton,
             install_proton,
+            proton_releases,
+            cancel_proton,
+            remove_proton,
         ])
         .run(tauri::generate_context!())
         .expect("error while running OnlineFix-Launcher");

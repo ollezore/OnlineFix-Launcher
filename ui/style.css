@@ -581,3 +581,16 @@ dialog::backdrop { background: var(--md-scrim); }
 .snackbar.show { opacity: 1; transform: translate(-50%, 0); pointer-events: auto; }
 .snackbar .msg { flex: 1; font-size: 14px; padding: 10px 0; }
 .snackbar .btn.text { color: var(--md-inverse-primary); }
+
+/* ── Менеджер Proton ── */
+.dlg .pm-chips { padding: 0; }
+.dlg .pm-desc { margin-top: -4px; }
+.pm-scroll { min-height: min(360px, 50vh); }
+.pm-list .list-item { min-height: 64px; }
+.pm-list .list-item .grow { gap: 4px; }
+.pm-badge { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; padding: 0 8px 0 4px; height: 20px; border-radius: var(--shape-full);
+  background: var(--md-success-container); color: var(--md-on-success-container); font-size: 11px; font-weight: 500; vertical-align: middle; }
+.pm-badge svg.i { width: 14px; height: 14px; }
+.btn.pm-remove { color: var(--md-error); }
+.dlg-actions .grow { flex: 1; }
+dialog:has(.pm-chips) { max-width: 760px; }
