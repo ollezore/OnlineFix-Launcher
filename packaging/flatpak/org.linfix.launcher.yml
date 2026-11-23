@@ -1,5 +1,5 @@
 # Flatpak из готового .deb (его собирает CI). Сборка:
-#   flatpak-builder --user --install-deps-from=flathub --force-clean --repo=repo build packaging/flatpak/org.linfix.launcher.yml
+#   flatpak-builder --user --disable-rofiles-fuse --install-deps-from=flathub --force-clean --repo=repo build packaging/flatpak/org.linfix.launcher.yml
 #   flatpak build-bundle repo OnlineFix-Launcher.flatpak org.linfix.launcher
 app-id: org.linfix.launcher
 runtime: org.gnome.Platform
@@ -25,7 +25,7 @@ modules:
     buildsystem: simple
     build-commands:
       - ar x onlinefix-launcher.deb
-      - tar xf data.tar.gz
+      - tar xf data.tar.*
       - install -Dm755 usr/bin/onlinefix-launcher /app/bin/onlinefix-launcher
       - install -Dm644 icon.png /app/share/icons/hicolor/128x128/apps/org.linfix.launcher.png
       - install -Dm644 org.linfix.launcher.desktop /app/share/applications/org.linfix.launcher.desktop
