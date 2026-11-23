@@ -1,6 +1,6 @@
 [package]
 name = "onlinefix-launcher"
-version = "0.3.4"
+version = "0.3.5"
 description = "Лаунчер игр FreeTP / Online-Fix для Linux: торрент, Proton, Steam (Spacewar 480)"
 edition = "2021"
 license = "GPL-3.0-or-later"

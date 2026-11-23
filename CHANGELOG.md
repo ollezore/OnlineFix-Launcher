@@ -1,5 +1,9 @@
 # Изменения
 
+## 0.3.5
+
+- Пакеты для Arch/CachyOS/Manjaro (`.pkg.tar.zst`) и Flatpak собираются в CI вместе с релизом.
+
 ## 0.3.4
 
 - Исправлено создание префикса и запуск на Linux в AppImage: дочерним процессам больше не передаются `PYTHONHOME`/`PYTHONPATH` и другие переменные из AppImage (из-за них Proton падал с «No module named 'encodings'»).
